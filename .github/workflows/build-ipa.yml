@@ -1,0 +1,48 @@
+name: Build IPA
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Archive (unsigned)
+        run: |
+          xcodebuild archive \
+            -project Shikimori.xcodeproj \
+            -scheme Shikimori \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/Shikimori.xcarchive \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Package IPA
+        run: |
+          mkdir -p build/Payload
+          cp -R build/Shikimori.xcarchive/Products/Applications/Shikimori.app build/Payload/
+          cd build
+          zip -qry Shikimori-unsigned.ipa Payload
+          ls -lh Shikimori-unsigned.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Shikimori-unsigned-ipa
+          path: build/Shikimori-unsigned.ipa
+          retention-days: 30
