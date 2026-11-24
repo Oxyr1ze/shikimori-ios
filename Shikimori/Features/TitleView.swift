@@ -145,6 +145,7 @@ struct TitleView: View {
                 .buttonStyle(.plain)
             }
             castRow
+            staffRow
             screenshotsRow(d)
 
             if let message = model.error {
@@ -187,17 +188,30 @@ struct TitleView: View {
                     HStack(alignment: .top, spacing: 14) {
                         ForEach(Array(list)) { role in
                             if let c = role.character {
-                                VStack(spacing: 6) {
-                                    Color(UIColor.tertiarySystemFill)
-                                        .frame(width: 76, height: 76)
-                                        .overlay { RemoteImage(urls: c.imageURLs) }
-                                        .clipShape(Circle())
-                                    Text(c.title)
-                                        .font(.caption.weight(.semibold))
-                                        .lineLimit(2)
-                                        .multilineTextAlignment(.center)
-                                        .frame(width: 84)
+                                NavigationLink { CharacterView(id: c.id) } label: { CastAvatar(person: c) }
+                                    .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var staffRow: some View {
+        let list = model.roles.filter { $0.person != nil }.prefix(15)
+        if !list.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Создатели").font(.title3.weight(.bold))
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: 14) {
+                        ForEach(Array(list)) { role in
+                            if let p = role.person {
+                                NavigationLink { PersonView(id: p.id) } label: {
+                                    CastAvatar(person: p, size: 64, subtitle: role.rolesRussian?.joined(separator: ", "))
                                 }
+                                .buttonStyle(.plain)
                             }
                         }
                     }

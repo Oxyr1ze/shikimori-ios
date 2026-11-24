@@ -95,17 +95,8 @@ struct ProfileView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(alignment: .top, spacing: 14) {
                         ForEach(list, id: \.id) { c in
-                            VStack(spacing: 6) {
-                                Color(UIColor.tertiarySystemFill)
-                                    .frame(width: 76, height: 76)
-                                    .overlay { RemoteImage(urls: c.imageURLs) }
-                                    .clipShape(Circle())
-                                Text(c.title)
-                                    .font(.caption.weight(.semibold))
-                                    .lineLimit(2)
-                                    .multilineTextAlignment(.center)
-                                    .frame(width: 84)
-                            }
+                            NavigationLink { CharacterView(id: c.id) } label: { CastAvatar(person: c) }
+                                .buttonStyle(.plain)
                         }
                     }
                 }

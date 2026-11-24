@@ -284,6 +284,14 @@ final class AuthManager: ObservableObject {
         return result
     }
 
+    func character(id: Int) async throws -> CharacterDetail {
+        try await get("/api/characters/\(id)")
+    }
+
+    func person(id: Int) async throws -> PersonDetail {
+        try await get("/api/people/\(id)")
+    }
+
     func favourites() async -> Favourites? {
         guard let user, let r: FavouritesResponse = try? await get("/api/users/\(user.id)/favourites") else { return nil }
         var fav = Favourites()

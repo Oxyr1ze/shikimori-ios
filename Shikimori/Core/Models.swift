@@ -70,6 +70,7 @@ struct Media: Codable, Identifiable, Hashable {
     var chapters: Int?
     var volumes: Int?
     var posterURLs: PosterURLs?
+    var role: String?
 
     var title: String {
         if let r = russian, !r.isEmpty { return r }
@@ -403,4 +404,52 @@ struct HistoryItem: Codable, Identifiable, Hashable {
         r.unitsStyle = .short
         return r.localizedString(for: d, relativeTo: Date())
     }
+}
+
+
+struct CharacterDetail: Codable {
+    var id: Int
+    var name: String?
+    var russian: String?
+    var altname: String?
+    var japanese: String?
+    var image: ImageSet?
+    var descriptionHtml: String?
+    var seyu: [CastPerson]?
+    var animes: [Media]?
+    var mangas: [Media]?
+
+    var title: String {
+        if let r = russian, !r.isEmpty { return r }
+        return name ?? ""
+    }
+    var posterURLs: [URL] { urlList([image?.original, image?.preview, image?.x96]) }
+}
+
+struct PersonRoleGroup: Codable {
+    var characters: [CastPerson]?
+    var animes: [Media]?
+}
+
+struct PersonWork: Codable {
+    var anime: Media?
+    var manga: Media?
+    var role: String?
+}
+
+struct PersonDetail: Codable {
+    var id: Int
+    var name: String?
+    var russian: String?
+    var japanese: String?
+    var jobTitle: String?
+    var image: ImageSet?
+    var roles: [PersonRoleGroup]?
+    var works: [PersonWork]?
+
+    var title: String {
+        if let r = russian, !r.isEmpty { return r }
+        return name ?? ""
+    }
+    var posterURLs: [URL] { urlList([image?.original, image?.preview, image?.x96]) }
 }
