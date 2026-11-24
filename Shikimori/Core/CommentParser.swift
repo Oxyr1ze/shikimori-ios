@@ -1,8 +1,13 @@
 import SwiftUI
 
 /// Блок комментария: текст, цитата, картинка или спойлер.
-enum CBlockKind {
+enum CRun {
     case text(AttributedString)
+    case smiley(URL)
+}
+
+enum CBlockKind {
+    case text([CRun])
     case quote(author: String?, blocks: [CBlock])
     case image(URL)
     case spoiler(title: String, blocks: [CBlock])
@@ -158,11 +163,13 @@ struct CommentStyle {
     var color: Color?
     var link: URL?
     var noImages = false
+    var pill = false
 }
 
 struct CommentRenderer {
     var blocks: [CBlock] = []
     var current = AttributedString()
+    var pending: [CRun] = []
 
     static func render(html: String) -> [CBlock] {
         var r = CommentRenderer()
@@ -179,11 +186,26 @@ struct CommentRenderer {
         return URL(string: ShikiConfig.host + path)
     }
 
-    mutating func flush() {
-        while let f = current.characters.first, f.isNewline || f == " " { current.characters.removeFirst() }
-        while let l = current.characters.last, l.isNewline || l == " " { current.characters.removeLast() }
-        if !current.characters.isEmpty { blocks.append(CBlock(kind: .text(current))) }
+    private mutating func commitCurrent() {
+        if !current.characters.isEmpty { pending.append(.text(current)) }
         current = AttributedString()
+    }
+
+    mutating func flush() {
+        commitCurrent()
+        guard !pending.isEmpty else { return }
+        var runs = pending
+        pending = []
+        if case .text(var first) = runs[0] {
+            while let f = first.characters.first, f.isNewline || f == " " { first.characters.removeFirst() }
+            runs[0] = .text(first)
+        }
+        if case .text(var last) = runs[runs.count - 1] {
+            while let l = last.characters.last, l.isNewline || l == " " { last.characters.removeLast() }
+            runs[runs.count - 1] = .text(last)
+        }
+        runs = runs.filter { if case .text(let t) = $0 { return !t.characters.isEmpty } else { return true } }
+        if !runs.isEmpty { blocks.append(CBlock(kind: .text(runs))) }
     }
 
     private mutating func appendText(_ s: String, _ st: CommentStyle) {
@@ -195,6 +217,7 @@ struct CommentRenderer {
         if st.underline { a.underlineStyle = .single }
         if let c = st.color { a.foregroundColor = c }
         if let l = st.link { a.link = l }
+        if st.pill { a.backgroundColor = Color(UIColor.tertiarySystemFill) }
         current.append(a)
     }
 
@@ -208,13 +231,38 @@ struct CommentRenderer {
             appendText(t, st)
             return
         }
+        if n.hasClass("b-mention") {
+            var s = st
+            s.bold = true
+            s.color = Theme.accent
+            s.noImages = true
+            walkChildren(n, s)
+            return
+        }
+        if n.hasClass("b-user16") {
+            var s = st
+            s.bold = true
+            s.noImages = true
+            s.pill = true
+            appendText(" ", st)
+            walkChildren(n, s)
+            appendText(" ", st)
+            return
+        }
         switch n.tag {
         case "br":
             appendText("\n", st)
         case "img":
             if st.noImages { return }
             let src = n.attrs["src"] ?? ""
-            if n.hasClass("smiley") || src.contains("/smileys/") || n.hasClass("emoji") { return }
+            if n.hasClass("smiley") || src.contains("/smileys/") || n.hasClass("emoji") {
+                if let url = absolute(src) {
+                    commitCurrent()
+                    pending.append(.smiley(url))
+                }
+                return
+            }
+            if src.contains("/system/users/") { return }
             if let url = absolute(imageHref ?? n.attrs["data-src"] ?? src) {
                 flush()
                 blocks.append(CBlock(kind: .image(url)))
@@ -297,7 +345,7 @@ extension Comment {
             if !r.isEmpty { return r }
         }
         let t = plainBody
-        return t.isEmpty ? [] : [CBlock(kind: .text(AttributedString(t)))]
+        return t.isEmpty ? [] : [CBlock(kind: .text([.text(AttributedString(t))]))]
     }
 }
 
@@ -308,9 +356,8 @@ struct CommentBlocksView: View {
         VStack(alignment: .leading, spacing: 8) {
             ForEach(blocks) { block in
                 switch block.kind {
-                case .text(let a):
-                    Text(a)
-                        .font(.subheadline)
+                case .text(let runs):
+                    CommentRichText(runs: runs)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 case .quote(let author, let inner):
                     AnyView(
@@ -385,5 +432,58 @@ struct CommentImage: View {
                 .padding(20)
             }
         }
+    }
+}
+
+
+/// Загрузка и хранение смайликов-картинок (уменьшаются до размера строки текста).
+@MainActor
+final class SmileyStore: ObservableObject {
+    static let shared = SmileyStore()
+    @Published private(set) var images: [URL: UIImage] = [:]
+    private var loading: Set<URL> = []
+
+    func load(_ url: URL) async {
+        if images[url] != nil || loading.contains(url) { return }
+        loading.insert(url)
+        defer { loading.remove(url) }
+        guard let (data, _) = try? await URLSession.shared.data(from: url),
+              let ui = UIImage(data: data), ui.size.height > 0 else { return }
+        let height: CGFloat = 28
+        let width = ui.size.width / ui.size.height * height
+        let fmt = UIGraphicsImageRendererFormat()
+        fmt.scale = 3
+        let scaled = UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: fmt).image { _ in
+            ui.draw(in: CGRect(x: 0, y: 0, width: width, height: height))
+        }
+        images[url] = scaled
+    }
+}
+
+struct CommentRichText: View {
+    let runs: [CRun]
+    @ObservedObject private var store = SmileyStore.shared
+
+    private var smileyURLs: [URL] {
+        runs.compactMap { if case .smiley(let u) = $0 { return u } else { return nil } }
+    }
+
+    var body: some View {
+        var result = Text("")
+        for run in runs {
+            switch run {
+            case .text(let a):
+                result = result + Text(a)
+            case .smiley(let url):
+                if let img = store.images[url] {
+                    result = result + Text(Image(uiImage: img))
+                }
+            }
+        }
+        return result
+            .font(.subheadline)
+            .task(id: smileyURLs) {
+                for u in smileyURLs { await store.load(u) }
+            }
     }
 }

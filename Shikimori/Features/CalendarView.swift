@@ -59,7 +59,9 @@ struct CalendarView: View {
                     VStack(alignment: .leading, spacing: 10) {
                         Text(dayTitle(day.id)).font(.title3.weight(.bold))
                         ForEach(day.items) { item in
-                            NavigationLink(value: MediaRef(id: item.anime.id, kind: .anime)) {
+                            NavigationLink {
+                                TitleView(ref: MediaRef(id: item.anime.id, kind: .anime))
+                            } label: {
                                 row(item)
                             }
                             .buttonStyle(.plain)
@@ -79,7 +81,6 @@ struct CalendarView: View {
             .padding(.bottom, 100)
         }
         .background(AppBackground())
-        .navigationDestination(for: MediaRef.self) { TitleView(ref: $0) }
         .navigationTitle("Календарь")
         .navigationBarTitleDisplayMode(.inline)
         .task { if model.days.isEmpty { await model.load() } }
