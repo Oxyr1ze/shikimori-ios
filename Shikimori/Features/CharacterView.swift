@@ -207,7 +207,9 @@ struct PersonView: View {
                             Text("Работы").font(.title3.weight(.bold))
                             ForEach(Array(works.prefix(60).enumerated()), id: \.offset) { _, w in
                                 if let m = w.anime ?? w.manga {
-                                    NavigationLink(value: MediaRef(id: m.id, kind: w.anime != nil ? .anime : (m.isRanobe ? .ranobe : .manga))) {
+                                    NavigationLink {
+                                        TitleView(ref: MediaRef(id: m.id, kind: w.anime != nil ? .anime : (m.isRanobe ? .ranobe : .manga)))
+                                    } label: {
                                         workRow(m, role: w.role)
                                     }
                                     .buttonStyle(.plain)

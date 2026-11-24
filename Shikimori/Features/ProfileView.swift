@@ -159,7 +159,9 @@ struct ProfileView: View {
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 
         if let t = item.target {
-            NavigationLink(value: MediaRef(id: t.id, kind: t.kind)) { content }
+            NavigationLink {
+                TitleView(ref: MediaRef(id: t.id, kind: t.kind))
+            } label: { content }
                 .buttonStyle(.plain)
         } else {
             content

@@ -84,7 +84,9 @@ struct MediaRow: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(alignment: .top, spacing: 12) {
                         ForEach(items) { item in
-                            NavigationLink(value: MediaRef(id: item.id, kind: kind)) {
+                            NavigationLink {
+                                TitleView(ref: MediaRef(id: item.id, kind: kind))
+                            } label: {
                                 MediaCard(media: item)
                             }
                             .buttonStyle(.plain)
