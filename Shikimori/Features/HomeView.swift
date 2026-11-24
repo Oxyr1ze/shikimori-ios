@@ -49,6 +49,16 @@ struct HomeView: View {
             }
             .background(AppBackground())
             .navigationTitle("Shikimori")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    NavigationLink {
+                        CalendarView()
+                    } label: {
+                        Image(systemName: "calendar")
+                    }
+                    .accessibilityLabel("Календарь")
+                }
+            }
             .navigationDestination(for: MediaRef.self) { TitleView(ref: $0) }
             .task { await model.load() }
             .refreshable { await model.load() }

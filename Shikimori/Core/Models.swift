@@ -298,3 +298,19 @@ struct Comment: Codable, Identifiable, Hashable {
         return r.localizedString(for: d, relativeTo: Date())
     }
 }
+
+
+struct CalendarItem: Codable, Identifiable, Hashable {
+    var nextEpisode: Int?
+    var nextEpisodeAt: String?
+    var anime: Media
+    var id: String { "\(anime.id)-\(nextEpisode ?? 0)" }
+
+    var date: Date? {
+        guard let s = nextEpisodeAt else { return nil }
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let g = ISO8601DateFormatter()
+        return f.date(from: s) ?? g.date(from: s)
+    }
+}

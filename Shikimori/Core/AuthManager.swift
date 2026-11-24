@@ -246,6 +246,44 @@ final class AuthManager: ObservableObject {
         return d
     }
 
+    /// Расписание выхода серий. Сначала обычный /api/calendar, при сбое запасной путь через GraphQL.
+    func calendar() async throws -> [CalendarItem] {
+        if let items: [CalendarItem] = try? await get("/api/calendar"), !items.isEmpty {
+            var result = items
+            let posters = await fetchPosters(ids: result.map { $0.anime.id }, kind: .anime)
+            for i in result.indices { result[i].anime.posterURLs = posters[result[i].anime.id] }
+            return result
+        }
+        var result: [CalendarItem] = []
+        for page in 1...4 {
+            let query = "{ animes(status: \"ongoing\", limit: 50, page: \(page)) { id name russian score episodes episodesAired nextEpisodeAt poster { originalUrl mainUrl previewUrl } } }"
+            let data = try await send("POST", "/api/graphql", json: ["query": query])
+            guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw ShikiError.decoding("graphql") }
+            if let errs = root["errors"] as? [[String: Any]], let m = errs.first?["message"] as? String {
+                throw ShikiError.network(m)
+            }
+            guard let rows = (root["data"] as? [String: Any])?["animes"] as? [[String: Any]] else { break }
+            for row in rows {
+                guard let at = row["nextEpisodeAt"] as? String else { continue }
+                let rawID = row["id"]
+                guard let id = (rawID as? Int) ?? Int((rawID as? String) ?? "") else { continue }
+                var m = Media(id: id, name: (row["name"] as? String) ?? "")
+                m.russian = row["russian"] as? String
+                m.score = (row["score"] as? Double).map { String($0) }
+                m.episodes = row["episodes"] as? Int
+                m.episodesAired = row["episodesAired"] as? Int
+                if let p = row["poster"] as? [String: Any] {
+                    m.posterURLs = PosterURLs(original: p["originalUrl"] as? String,
+                                              main: p["mainUrl"] as? String,
+                                              preview: p["previewUrl"] as? String)
+                }
+                result.append(CalendarItem(nextEpisode: (m.episodesAired ?? 0) + 1, nextEpisodeAt: at, anime: m))
+            }
+            if rows.count < 50 { break }
+        }
+        return result
+    }
+
     func comments(topicID: Int, page: Int, limit: Int = 30) async throws -> [Comment] {
         let q = [
             URLQueryItem(name: "commentable_id", value: String(topicID)),
