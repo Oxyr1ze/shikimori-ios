@@ -148,6 +148,7 @@ struct MediaDetail: Codable, Identifiable {
     var volumes: Int?
     var english: [String?]?
     var japanese: [String?]?
+    var topicId: Int?
     var rating: String?
     var duration: Int?
     var airedOn: String?
@@ -266,4 +267,34 @@ func kindTitle(_ k: String) -> String {
 
 extension Media {
     var isRanobe: Bool { kind == "light_novel" || kind == "novel" }
+}
+
+
+struct Comment: Codable, Identifiable, Hashable {
+    var id: Int
+    var body: String?
+    var createdAt: String?
+    var isOfftopic: Bool?
+    var user: ShikiUser?
+
+    /// Текст без разметки Shikimori ([b], [quote], ссылки и т.д.).
+    var plainBody: String {
+        var t = body ?? ""
+        t = t.replacingOccurrences(of: "\\[spoiler[^\\]]*\\][\\s\\S]*?\\[/spoiler\\]", with: "[спойлер]", options: .regularExpression)
+        t = t.replacingOccurrences(of: "\\[img[^\\]]*\\][\\s\\S]*?\\[/img\\]", with: "", options: .regularExpression)
+        t = t.replacingOccurrences(of: "\\[[^\\]]*\\]", with: "", options: .regularExpression)
+        return t.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var dateText: String {
+        guard let s = createdAt else { return "" }
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let g = ISO8601DateFormatter()
+        guard let d = f.date(from: s) ?? g.date(from: s) else { return "" }
+        let r = RelativeDateTimeFormatter()
+        r.locale = Locale(identifier: "ru_RU")
+        r.unitsStyle = .short
+        return r.localizedString(for: d, relativeTo: Date())
+    }
 }

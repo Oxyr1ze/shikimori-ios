@@ -129,6 +129,21 @@ struct TitleView: View {
             }
 
             infoCard(d)
+            if let topic = d.topicId {
+                NavigationLink {
+                    CommentsView(topicID: topic, title: d.title)
+                } label: {
+                    HStack {
+                        Label("Обсуждение", systemImage: "bubble.left.and.bubble.right")
+                            .font(.body.weight(.semibold))
+                        Spacer()
+                        Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                    }
+                    .padding(16)
+                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
             castRow
             screenshotsRow(d)
 

@@ -246,6 +246,27 @@ final class AuthManager: ObservableObject {
         return d
     }
 
+    func comments(topicID: Int, page: Int, limit: Int = 30) async throws -> [Comment] {
+        let q = [
+            URLQueryItem(name: "commentable_id", value: String(topicID)),
+            URLQueryItem(name: "commentable_type", value: "Topic"),
+            URLQueryItem(name: "page", value: String(page)),
+            URLQueryItem(name: "limit", value: String(limit)),
+            URLQueryItem(name: "desc", value: "1")
+        ]
+        return try await get("/api/comments", query: q)
+    }
+
+    func postComment(topicID: Int, body: String) async throws -> Comment {
+        let payload: [String: Any] = ["comment": [
+            "body": body,
+            "commentable_id": topicID,
+            "commentable_type": "Topic"
+        ] as [String: Any]]
+        let data = try await send("POST", "/api/comments", json: payload)
+        return try decode(data)
+    }
+
     func roles(_ ref: MediaRef) async -> [Role] {
         (try? await get("/api/\(ref.kind.path)/\(ref.id)/roles")) ?? []
     }
