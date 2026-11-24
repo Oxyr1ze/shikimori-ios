@@ -49,9 +49,9 @@ struct ProfileView: View {
                     .background(Theme.card, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
 
                     if let fav = model.favourites {
-                        MediaRow(title: "Избранное: аниме", items: fav.animes, kind: .anime)
-                        MediaRow(title: "Избранное: манга", items: fav.mangas, kind: .manga)
-                        MediaRow(title: "Избранное: ранобэ", items: fav.ranobe, kind: .ranobe)
+                        MediaRow(title: "Избранное: аниме", items: fav.animes, kind: .anime).padding(.horizontal, -20)
+                        MediaRow(title: "Избранное: манга", items: fav.mangas, kind: .manga).padding(.horizontal, -20)
+                        MediaRow(title: "Избранное: ранобэ", items: fav.ranobe, kind: .ranobe).padding(.horizontal, -20)
                         favouriteCharacters(fav.characters)
                     }
                     friendsRow
