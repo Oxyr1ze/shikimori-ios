@@ -10,17 +10,32 @@ final class HomeModel: ObservableObject {
 
     func load() async {
         let api = AuthManager.shared
+        let watchKey = DiskCache.userKey("home-watching")
+        if airing.isEmpty { airing = DiskCache.load([Media].self, key: "home-airing") ?? [] }
+        if popular.isEmpty { popular = DiskCache.load([Media].self, key: "home-popular") ?? [] }
+        if watching.isEmpty { watching = DiskCache.load([RateEntry].self, key: watchKey) ?? [] }
         loading = true
         error = nil
         var failures = 0
-        do { airing = try await api.media(kind: .anime, order: "popularity", status: "ongoing", limit: 12) }
-        catch is CancellationError { loading = false; return }
+        do {
+            airing = try await api.media(kind: .anime, order: "popularity", status: "ongoing", limit: 12)
+            DiskCache.save(airing, key: "home-airing")
+        } catch is CancellationError { loading = false; return }
         catch { failures += 1; self.error = error.localizedDescription }
-        do { popular = try await api.media(kind: .anime, order: "popularity", limit: 12) }
-        catch is CancellationError { loading = false; return }
+        do {
+            popular = try await api.media(kind: .anime, order: "popularity", limit: 12)
+            DiskCache.save(popular, key: "home-popular")
+        } catch is CancellationError { loading = false; return }
         catch { failures += 1; self.error = error.localizedDescription }
-        if let rates = try? await api.animeRates(status: "watching") { watching = rates }
-        if failures == 0 { error = nil }
+        if let rates = try? await api.animeRates(status: "watching") {
+            watching = rates
+            DiskCache.save(rates, key: watchKey)
+        }
+        if failures == 0 {
+            error = nil
+        } else if !airing.isEmpty || !popular.isEmpty {
+            error = offlineMessage
+        }
         loading = false
     }
 }

@@ -9,6 +9,8 @@ final class ListsModel: ObservableObject {
     @Published var error: String?
 
     func load() async {
+        let key = DiskCache.userKey("lists-\(kind.rawValue)-\(status.rawValue)")
+        if entries.isEmpty, let cached = DiskCache.load([RateEntry].self, key: key) { entries = cached }
         loading = true
         error = nil
         do {
@@ -17,9 +19,10 @@ final class ListsModel: ObservableObject {
             } else {
                 entries = try await AuthManager.shared.mangaRates(kind: kind, status: status.rawValue)
             }
+            DiskCache.save(entries, key: key)
         } catch is CancellationError {
         } catch {
-            self.error = error.localizedDescription
+            self.error = entries.isEmpty ? error.localizedDescription : offlineMessage
         }
         loading = false
     }

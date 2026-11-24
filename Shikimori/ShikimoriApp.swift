@@ -4,6 +4,11 @@ import SwiftUI
 struct ShikimoriApp: App {
     @StateObject private var auth = AuthManager.shared
 
+    init() {
+        // Больше места под картинки: постеры остаются на телефоне и открываются без интернета.
+        URLCache.shared = URLCache(memoryCapacity: 64 * 1024 * 1024, diskCapacity: 600 * 1024 * 1024)
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()

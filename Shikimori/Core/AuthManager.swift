@@ -104,6 +104,7 @@ final class AuthManager: ObservableObject {
         Keychain.set("", for: "access_token")
         Keychain.set("", for: "refresh_token")
         user = nil
+        DiskCache.clear()
     }
 
     private func tokenRequest(_ fields: [String: String]) async throws -> Bool {

@@ -350,7 +350,7 @@ struct FavouriteItem: Codable, Hashable {
     }
 }
 
-struct Favourites {
+struct Favourites: Codable {
     var animes: [Media] = []
     var mangas: [Media] = []
     var ranobe: [Media] = []
@@ -456,7 +456,7 @@ struct PersonDetail: Codable {
 
 
 /// Элемент статистики: в оценках имя может быть числом, в типах строкой.
-struct StatEntry: Decodable {
+struct StatEntry: Codable {
     var name: String
     var value: Int
 
@@ -477,12 +477,12 @@ struct StatEntry: Decodable {
     }
 }
 
-struct StatusStat: Decodable {
+struct StatusStat: Codable {
     var name: String
     var size: Int
 }
 
-struct UserStats: Decodable {
+struct UserStats: Codable {
     var fullStatuses: [String: [StatusStat]]?
     var scores: [String: [StatEntry]]?
 }

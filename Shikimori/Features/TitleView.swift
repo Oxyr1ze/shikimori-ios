@@ -12,10 +12,21 @@ final class TitleModel: ObservableObject {
     func load(_ ref: MediaRef) async {
         self.ref = ref
         error = nil
+        let base = "\(ref.kind.rawValue)-\(ref.id)"
+        let detailKey = DiskCache.userKey("detail-\(base)")
+        if detail == nil {
+            detail = DiskCache.load(MediaDetail.self, key: detailKey)
+            roles = DiskCache.load([Role].self, key: "roles-\(base)") ?? []
+            similar = DiskCache.load([Media].self, key: "similar-\(base)") ?? []
+        }
         do {
-            detail = try await AuthManager.shared.detail(ref)
-            roles = await AuthManager.shared.roles(ref)
-            similar = await AuthManager.shared.similar(ref)
+            let fresh = try await AuthManager.shared.detail(ref)
+            detail = fresh
+            DiskCache.save(fresh, key: detailKey)
+            let r = await AuthManager.shared.roles(ref)
+            if !r.isEmpty { roles = r; DiskCache.save(r, key: "roles-\(base)") }
+            let s = await AuthManager.shared.similar(ref)
+            if !s.isEmpty { similar = s; DiskCache.save(s, key: "similar-\(base)") }
         } catch is CancellationError {
         } catch {
             self.error = error.localizedDescription

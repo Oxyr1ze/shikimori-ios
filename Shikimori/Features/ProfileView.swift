@@ -9,10 +9,29 @@ final class ProfileModel: ObservableObject {
 
     func load() async {
         let api = AuthManager.shared
-        favourites = await api.favourites()
-        stats = await api.userStats()
-        friends = await api.friends()
-        history = await api.history()
+        if favourites == nil { favourites = DiskCache.load(Favourites.self, key: DiskCache.userKey("profile-fav")) }
+        if stats == nil { stats = DiskCache.load(UserStats.self, key: DiskCache.userKey("profile-stats")) }
+        if friends.isEmpty { friends = DiskCache.load([ShikiUser].self, key: DiskCache.userKey("profile-friends")) ?? [] }
+        if history.isEmpty { history = DiskCache.load([HistoryItem].self, key: DiskCache.userKey("profile-history")) ?? [] }
+
+        if let f = await api.favourites() {
+            favourites = f
+            DiskCache.save(f, key: DiskCache.userKey("profile-fav"))
+        }
+        if let s = await api.userStats() {
+            stats = s
+            DiskCache.save(s, key: DiskCache.userKey("profile-stats"))
+        }
+        let fr = await api.friends()
+        if !fr.isEmpty {
+            friends = fr
+            DiskCache.save(fr, key: DiskCache.userKey("profile-friends"))
+        }
+        let h = await api.history()
+        if !h.isEmpty {
+            history = h
+            DiskCache.save(h, key: DiskCache.userKey("profile-history"))
+        }
     }
 }
 
