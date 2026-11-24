@@ -328,3 +328,35 @@ func ruDate(_ s: String) -> String {
     out.dateFormat = "d MMMM yyyy"
     return out.string(from: d)
 }
+
+
+struct Favourites: Codable {
+    var animes: [Media]?
+    var mangas: [Media]?
+    var ranobe: [Media]?
+    var characters: [CastPerson]?
+}
+
+struct HistoryItem: Codable, Identifiable, Hashable {
+    var id: Int
+    var createdAt: String?
+    var description: String?
+
+    var plainDescription: String {
+        let t = (description ?? "")
+            .replacingOccurrences(of: "<[^>]*>", with: "", options: .regularExpression)
+        return HTMLMini.decode(t).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    var dateText: String {
+        guard let s = createdAt else { return "" }
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let g = ISO8601DateFormatter()
+        guard let d = f.date(from: s) ?? g.date(from: s) else { return "" }
+        let r = RelativeDateTimeFormatter()
+        r.locale = Locale(identifier: "ru_RU")
+        r.unitsStyle = .short
+        return r.localizedString(for: d, relativeTo: Date())
+    }
+}

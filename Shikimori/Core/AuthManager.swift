@@ -284,6 +284,33 @@ final class AuthManager: ObservableObject {
         return result
     }
 
+    func favourites() async -> Favourites? {
+        guard let user, var fav: Favourites = try? await get("/api/users/\(user.id)/favourites") else { return nil }
+        if let list = fav.animes {
+            let p = await fetchPosters(ids: list.map(\.id), kind: .anime)
+            fav.animes = list.map { var m = $0; m.posterURLs = p[m.id]; return m }
+        }
+        if let list = fav.mangas {
+            let p = await fetchPosters(ids: list.map(\.id), kind: .manga)
+            fav.mangas = list.map { var m = $0; m.posterURLs = p[m.id]; return m }
+        }
+        if let list = fav.ranobe {
+            let p = await fetchPosters(ids: list.map(\.id), kind: .ranobe)
+            fav.ranobe = list.map { var m = $0; m.posterURLs = p[m.id]; return m }
+        }
+        return fav
+    }
+
+    func friends() async -> [ShikiUser] {
+        guard let user else { return [] }
+        return (try? await get("/api/users/\(user.id)/friends", query: [URLQueryItem(name: "limit", value: "100")])) ?? []
+    }
+
+    func history() async -> [HistoryItem] {
+        guard let user else { return [] }
+        return (try? await get("/api/users/\(user.id)/history", query: [URLQueryItem(name: "limit", value: "20")])) ?? []
+    }
+
     func comments(topicID: Int, page: Int, limit: Int = 30) async throws -> [Comment] {
         let q = [
             URLQueryItem(name: "commentable_id", value: String(topicID)),
