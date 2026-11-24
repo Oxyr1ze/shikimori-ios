@@ -246,6 +246,17 @@ final class AuthManager: ObservableObject {
         return d
     }
 
+    func roles(_ ref: MediaRef) async -> [Role] {
+        (try? await get("/api/\(ref.kind.path)/\(ref.id)/roles")) ?? []
+    }
+
+    func similar(_ ref: MediaRef) async -> [Media] {
+        var items: [Media] = (try? await get("/api/\(ref.kind.path)/\(ref.id)/similar")) ?? []
+        let posters = await fetchPosters(ids: items.map(\.id), kind: ref.kind)
+        for i in items.indices { items[i].posterURLs = posters[items[i].id] }
+        return items
+    }
+
     /// Настоящие постеры через GraphQL. При любой ошибке просто возвращаем пусто: тогда используются адреса из REST.
     func fetchPosters(ids: [Int], kind: MediaKind) async -> [Int: PosterURLs] {
         var result: [Int: PosterURLs] = [:]

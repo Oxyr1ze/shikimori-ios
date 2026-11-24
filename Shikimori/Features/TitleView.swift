@@ -5,11 +5,15 @@ final class TitleModel: ObservableObject {
     @Published var detail: MediaDetail?
     @Published var error: String?
     @Published var busy = false
+    @Published var roles: [Role] = []
+    @Published var similar: [Media] = []
 
     func load(_ ref: MediaRef) async {
         error = nil
         do {
             detail = try await AuthManager.shared.detail(ref)
+            roles = await AuthManager.shared.roles(ref)
+            similar = await AuthManager.shared.similar(ref)
         } catch is CancellationError {
         } catch {
             self.error = error.localizedDescription
@@ -120,12 +124,87 @@ struct TitleView: View {
                 Text(text).font(.body)
             }
 
+            infoCard(d)
+            castRow
+            screenshotsRow(d)
+
             if let message = model.error {
                 Text(message).font(.footnote).foregroundStyle(.red)
             }
+
+            MediaRow(title: "Похожее", items: model.similar, kind: ref.kind)
+                .padding(.horizontal, -20)
         }
         .padding(20)
         .padding(.bottom, 100)
+    }
+
+    @ViewBuilder
+    private func infoCard(_ d: MediaDetail) -> some View {
+        let lines = d.infoLines
+        if !lines.isEmpty {
+            VStack(spacing: 10) {
+                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
+                    HStack(alignment: .top) {
+                        Text(line.0).foregroundStyle(.secondary)
+                        Spacer(minLength: 16)
+                        Text(line.1).multilineTextAlignment(.trailing)
+                    }
+                    .font(.subheadline)
+                }
+            }
+            .padding(16)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        }
+    }
+
+    @ViewBuilder
+    private var castRow: some View {
+        let list = model.roles.filter { $0.character != nil }.prefix(20)
+        if !list.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Персонажи").font(.title3.weight(.bold))
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: 14) {
+                        ForEach(Array(list)) { role in
+                            if let c = role.character {
+                                VStack(spacing: 6) {
+                                    Color(UIColor.tertiarySystemFill)
+                                        .frame(width: 76, height: 76)
+                                        .overlay { RemoteImage(urls: c.imageURLs) }
+                                        .clipShape(Circle())
+                                    Text(c.title)
+                                        .font(.caption.weight(.semibold))
+                                        .lineLimit(2)
+                                        .multilineTextAlignment(.center)
+                                        .frame(width: 84)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func screenshotsRow(_ d: MediaDetail) -> some View {
+        let shots = (d.screenshots ?? []).filter { $0.previewURL != nil }
+        if !shots.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Кадры").font(.title3.weight(.bold))
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 12) {
+                        ForEach(Array(shots.enumerated()), id: \.offset) { _, shot in
+                            Color(UIColor.tertiarySystemFill)
+                                .frame(width: 240, height: 135)
+                                .overlay { RemoteImage(urls: [shot.previewURL, shot.originalURL].compactMap { $0 }) }
+                                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        }
+                    }
+                }
+            }
+        }
     }
 
     private func stat(_ value: String, _ label: String) -> some View {

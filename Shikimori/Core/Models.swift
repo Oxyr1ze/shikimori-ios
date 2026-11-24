@@ -104,6 +104,36 @@ struct UserRate: Codable, Hashable {
     var volumes: Int?
 }
 
+struct Studio: Codable, Hashable {
+    var name: String?
+}
+
+struct Screenshot: Codable, Hashable {
+    var original: String?
+    var preview: String?
+    var originalURL: URL? { absoluteURL(original) }
+    var previewURL: URL? { absoluteURL(preview ?? original) }
+}
+
+struct CastPerson: Codable, Hashable {
+    var id: Int
+    var name: String?
+    var russian: String?
+    var image: ImageSet?
+    var title: String {
+        if let r = russian, !r.isEmpty { return r }
+        return name ?? ""
+    }
+    var imageURLs: [URL] { urlList([image?.original, image?.preview, image?.x96]) }
+}
+
+struct Role: Codable, Identifiable, Hashable {
+    var rolesRussian: [String]?
+    var character: CastPerson?
+    var person: CastPerson?
+    var id: String { "\(character?.id ?? 0)-\(person?.id ?? 0)" }
+}
+
 struct MediaDetail: Codable, Identifiable {
     let id: Int
     var name: String
@@ -118,6 +148,12 @@ struct MediaDetail: Codable, Identifiable {
     var volumes: Int?
     var english: [String?]?
     var japanese: [String?]?
+    var rating: String?
+    var duration: Int?
+    var airedOn: String?
+    var releasedOn: String?
+    var studios: [Studio]?
+    var screenshots: [Screenshot]?
     var description: String?
     var genres: [Genre]?
     var userRate: UserRate?
@@ -135,6 +171,16 @@ struct MediaDetail: Codable, Identifiable {
         return String(format: "%.2f", v)
     }
     /// Описание на Shikimori хранится с разметкой вида [character=1]Имя[/character]: убираем теги.
+    var infoLines: [(String, String)] {
+        var r: [(String, String)] = []
+        if let k = kind, !k.isEmpty { r.append(("Тип", k.uppercased() == k ? k : k.capitalized)) }
+        if let n = studios?.compactMap(\.name), !n.isEmpty { r.append(("Студия", n.joined(separator: ", "))) }
+        if let d = duration, d > 0 { r.append(("Длительность", "\(d) мин.")) }
+        if let a = airedOn, !a.isEmpty { r.append(("Выход", a)) }
+        if let a = releasedOn, !a.isEmpty { r.append(("Завершён", a)) }
+        if let g = rating, !g.isEmpty, g != "none" { r.append(("Возраст", g.uppercased().replacingOccurrences(of: "_", with: "-"))) }
+        return r
+    }
     var plainDescription: String? {
         guard let d = description, !d.isEmpty else { return nil }
         let cleaned = d.replacingOccurrences(of: "\\[[^\\]]*\\]", with: "", options: .regularExpression)
