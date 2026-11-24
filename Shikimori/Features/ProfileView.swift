@@ -31,7 +31,7 @@ struct ProfileView: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 24)
-                    .glassEffect(.regular, in: .rect(cornerRadius: 28))
+                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
 
                     Button { showDiagnostics = true } label: {
                         Label("Диагностика API", systemImage: "stethoscope").frame(maxWidth: .infinity)

@@ -79,7 +79,7 @@ struct TitleView: View {
     private func content(_ d: MediaDetail) -> some View {
         VStack(alignment: .leading, spacing: 18) {
             HStack(alignment: .bottom, spacing: 16) {
-                PosterView(url: d.posterURL, seed: d.id, radius: 22)
+                PosterView(urls: d.posterCandidates, radius: 22)
                     .frame(width: 128)
                 VStack(alignment: .leading, spacing: 6) {
                     Text(d.title)
@@ -149,7 +149,7 @@ struct TitleView: View {
             stat(releaseStatusTitle(d.status), "Статус")
         }
         .padding(.vertical, 14)
-        .glassEffect(.regular, in: .rect(cornerRadius: 24))
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     private func listCard(_ d: MediaDetail) -> some View {
@@ -211,7 +211,7 @@ struct TitleView: View {
             }
         }
         .padding(16)
-        .glassEffect(.regular, in: .rect(cornerRadius: 26))
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
         .disabled(model.busy)
     }
 }

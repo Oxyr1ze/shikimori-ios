@@ -49,6 +49,7 @@ final class AuthManager: ObservableObject {
     @Published var isReady = false
 
     private let pacer = RequestPacer()
+    private var posterCache: [String: PosterURLs] = [:]
     private var refreshing: Task<Bool, Never>?
 
     var clientID: String { Keychain.get("client_id") }
@@ -233,11 +234,48 @@ final class AuthManager: ObservableObject {
         ]
         if let status, !status.isEmpty { q.append(URLQueryItem(name: "status", value: status)) }
         if let search, !search.isEmpty { q.append(URLQueryItem(name: "search", value: search)) }
-        return try await get("/api/\(kind.path)", query: q)
+        var items: [Media] = try await get("/api/\(kind.path)", query: q)
+        let posters = await fetchPosters(ids: items.map(\.id), kind: kind)
+        for i in items.indices { items[i].posterURLs = posters[items[i].id] }
+        return items
     }
 
     func detail(_ ref: MediaRef) async throws -> MediaDetail {
-        try await get("/api/\(ref.kind.path)/\(ref.id)")
+        var d: MediaDetail = try await get("/api/\(ref.kind.path)/\(ref.id)")
+        d.posterURLs = await fetchPosters(ids: [ref.id], kind: ref.kind)[ref.id]
+        return d
+    }
+
+    /// Настоящие постеры через GraphQL. При любой ошибке просто возвращаем пусто: тогда используются адреса из REST.
+    func fetchPosters(ids: [Int], kind: MediaKind) async -> [Int: PosterURLs] {
+        var result: [Int: PosterURLs] = [:]
+        var missing: [Int] = []
+        for id in ids {
+            if let cached = posterCache["\(kind.rawValue)-\(id)"] { result[id] = cached } else { missing.append(id) }
+        }
+        let field = kind == .anime ? "animes" : "mangas"
+        var start = 0
+        while start < missing.count {
+            let chunk = Array(missing[start..<min(start + 50, missing.count)])
+            start += 50
+            let list = chunk.map(String.init).joined(separator: ",")
+            let query = "{ \(field)(ids: \"\(list)\", limit: 50) { id poster { originalUrl mainUrl previewUrl } } }"
+            guard let data = try? await send("POST", "/api/graphql", json: ["query": query]),
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let dataObj = root["data"] as? [String: Any],
+                  let rows = dataObj[field] as? [[String: Any]] else { continue }
+            for row in rows {
+                let rawID = row["id"]
+                let id = (rawID as? Int) ?? Int((rawID as? String) ?? "")
+                guard let id, let p = row["poster"] as? [String: Any] else { continue }
+                let urls = PosterURLs(original: p["originalUrl"] as? String,
+                                      main: p["mainUrl"] as? String,
+                                      preview: p["previewUrl"] as? String)
+                posterCache["\(kind.rawValue)-\(id)"] = urls
+                result[id] = urls
+            }
+        }
+        return result
     }
 
     func animeRates(status: String) async throws -> [RateEntry] {
@@ -246,7 +284,12 @@ final class AuthManager: ObservableObject {
             URLQueryItem(name: "status", value: status),
             URLQueryItem(name: "limit", value: "200")
         ]
-        return try await get("/api/users/\(user.id)/anime_rates", query: q)
+        var entries: [RateEntry] = try await get("/api/users/\(user.id)/anime_rates", query: q)
+        let posters = await fetchPosters(ids: entries.compactMap { $0.anime?.id }, kind: .anime)
+        for i in entries.indices {
+            if let id = entries[i].anime?.id { entries[i].anime?.posterURLs = posters[id] }
+        }
+        return entries
     }
 
     @discardableResult

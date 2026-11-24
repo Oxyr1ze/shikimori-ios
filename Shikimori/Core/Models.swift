@@ -39,6 +39,24 @@ private func absoluteURL(_ path: String?) -> URL? {
     return URL(string: ShikiConfig.host + path)
 }
 
+/// Адреса постеров из GraphQL (у новых релизов старые адреса из REST дают заглушку).
+struct PosterURLs: Codable, Hashable {
+    var original: String?
+    var main: String?
+    var preview: String?
+}
+
+private func urlList(_ paths: [String?]) -> [URL] {
+    var seen = Set<String>()
+    var result: [URL] = []
+    for p in paths {
+        guard let p, !p.isEmpty, !p.contains("missing_"), seen.insert(p).inserted,
+              let u = absoluteURL(p) else { continue }
+        result.append(u)
+    }
+    return result
+}
+
 struct Media: Codable, Identifiable, Hashable {
     let id: Int
     var name: String
@@ -51,13 +69,19 @@ struct Media: Codable, Identifiable, Hashable {
     var episodesAired: Int?
     var chapters: Int?
     var volumes: Int?
+    var posterURLs: PosterURLs?
 
     var title: String {
         if let r = russian, !r.isEmpty { return r }
         return name
     }
-    var posterURL: URL? { absoluteURL(image?.original) }
-    var thumbURL: URL? { absoluteURL(image?.preview ?? image?.original) }
+    /// Крупный постер: варианты по порядку, пока один не загрузится.
+    var posterCandidates: [URL] {
+        urlList([posterURLs?.original, posterURLs?.main, image?.original])
+    }
+    var thumbCandidates: [URL] {
+        urlList([posterURLs?.main, posterURLs?.preview, image?.original, image?.preview])
+    }
     var scoreText: String? {
         guard let s = score, let v = Double(s), v > 0 else { return nil }
         return String(format: "%.2f", v)
@@ -97,12 +121,15 @@ struct MediaDetail: Codable, Identifiable {
     var description: String?
     var genres: [Genre]?
     var userRate: UserRate?
+    var posterURLs: PosterURLs?
 
     var title: String {
         if let r = russian, !r.isEmpty { return r }
         return name
     }
-    var posterURL: URL? { absoluteURL(image?.original) }
+    var posterCandidates: [URL] {
+        urlList([posterURLs?.original, posterURLs?.main, image?.original])
+    }
     var scoreText: String? {
         guard let s = score, let v = Double(s), v > 0 else { return nil }
         return String(format: "%.2f", v)

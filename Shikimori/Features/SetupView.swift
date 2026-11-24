@@ -72,7 +72,7 @@ struct SetupView: View {
                 .accessibilityLabel("Вставить из буфера")
             }
             .padding(12)
-            .glassEffect(.regular, in: .rect(cornerRadius: 14))
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
         }
     }
 

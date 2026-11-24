@@ -83,7 +83,7 @@ struct ListsView: View {
         HStack(spacing: 12) {
             NavigationLink(value: MediaRef(id: anime.id, kind: .anime)) {
                 HStack(spacing: 14) {
-                    PosterView(url: anime.thumbURL, seed: anime.id, radius: 14)
+                    PosterView(urls: anime.thumbCandidates, radius: 14)
                         .frame(width: 58)
                     VStack(alignment: .leading, spacing: 8) {
                         Text(anime.title)
@@ -112,6 +112,6 @@ struct ListsView: View {
             .accessibilityLabel("Отметить эпизод")
         }
         .padding(10)
-        .glassEffect(.regular, in: .rect(cornerRadius: 24))
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 }

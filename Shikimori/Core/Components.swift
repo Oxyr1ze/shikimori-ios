@@ -1,31 +1,38 @@
 import SwiftUI
 
-/// Постер: сначала красивый градиент, поверх загружается настоящая картинка.
+/// Картинка с запасными адресами: если первый не загрузился, пробуем следующий.
+struct RemoteImage: View {
+    let urls: [URL]
+    @State private var index = 0
+
+    var body: some View {
+        if index < urls.count {
+            AsyncImage(url: urls[index]) { phase in
+                if let image = phase.image {
+                    image.resizable().scaledToFill()
+                } else if phase.error != nil {
+                    Color.clear.onAppear { index += 1 }
+                } else {
+                    Color.clear
+                }
+            }
+            .id(index)
+        } else {
+            Color.clear
+        }
+    }
+}
+
+/// Постер: серая подложка, поверх загружается настоящая картинка.
 struct PosterView: View {
-    let url: URL?
-    let seed: Int
+    let urls: [URL]
     var radius: CGFloat = 20
 
     var body: some View {
-        let colors = Theme.posterGradients[abs(seed) % Theme.posterGradients.count]
-        Color.clear
+        Color(UIColor.tertiarySystemFill)
             .aspectRatio(2.0 / 3.0, contentMode: .fit)
-            .overlay {
-                ZStack {
-                    LinearGradient(colors: colors, startPoint: .topLeading, endPoint: .bottomTrailing)
-                    if let url {
-                        AsyncImage(url: url) { phase in
-                            if let image = phase.image {
-                                image.resizable().scaledToFill()
-                            } else {
-                                Color.clear
-                            }
-                        }
-                    }
-                }
-            }
+            .overlay { RemoteImage(urls: urls) }
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
-            .shadow(color: .black.opacity(0.25), radius: 10, y: 6)
     }
 }
 
@@ -50,7 +57,7 @@ struct MediaCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            PosterView(url: media.thumbURL, seed: media.id)
+            PosterView(urls: media.thumbCandidates)
                 .frame(width: width)
             Text(media.title)
                 .font(.subheadline.weight(.semibold))
@@ -104,7 +111,7 @@ struct ErrorBanner: View {
         }
         .padding(16)
         .frame(maxWidth: .infinity)
-        .glassEffect(.regular, in: .rect(cornerRadius: 20))
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .padding(.horizontal, 20)
     }
 }

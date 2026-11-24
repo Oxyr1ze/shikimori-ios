@@ -105,7 +105,7 @@ struct CatalogView: View {
                         ForEach(model.items) { item in
                             NavigationLink(value: MediaRef(id: item.id, kind: model.kind)) {
                                 VStack(alignment: .leading, spacing: 8) {
-                                    PosterView(url: item.thumbURL, seed: item.id, radius: 22)
+                                    PosterView(urls: item.thumbCandidates, radius: 22)
                                         .overlay(alignment: .topTrailing) {
                                             if let s = item.scoreText { ScoreBadge(text: s).padding(8) }
                                         }
