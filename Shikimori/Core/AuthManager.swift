@@ -1,0 +1,277 @@
+import Foundation
+import SwiftUI
+
+enum ShikiConfig {
+    static let host = "https://shikimori.io"
+    static let redirect = "urn:ietf:wg:oauth:2.0:oob"
+    static let scopes = "user_rates comments topics"
+    static let userAgent = "ShikiApp"
+}
+
+enum ShikiError: LocalizedError {
+    case http(Int, String)
+    case unauthorized
+    case network(String)
+    case decoding(String)
+
+    var errorDescription: String? {
+        switch self {
+        case .http(let code, let body):
+            let short = body.count > 160 ? String(body.prefix(160)) + "…" : body
+            return "Ошибка сервера \(code). \(short)"
+        case .unauthorized: return "Нужно войти заново."
+        case .network(let m): return "Нет соединения: \(m)"
+        case .decoding(let m): return "Не удалось разобрать ответ: \(m)"
+        }
+    }
+}
+
+/// Не больше ~4 запросов в секунду: лимит Shikimori 5 в секунду.
+actor RequestPacer {
+    private var next = Date.distantPast
+    func wait() async {
+        let now = Date()
+        let start = max(now, next)
+        next = start.addingTimeInterval(0.25)
+        let delay = start.timeIntervalSince(now)
+        if delay > 0 {
+            try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+        }
+    }
+}
+
+/// Вход через OAuth, хранение токенов в Keychain и все запросы к Shikimori.
+@MainActor
+final class AuthManager: ObservableObject {
+    static let shared = AuthManager()
+
+    @Published var user: ShikiUser?
+    @Published var isReady = false
+
+    private let pacer = RequestPacer()
+    private var refreshing: Task<Bool, Never>?
+
+    var clientID: String { Keychain.get("client_id") }
+    var clientSecret: String { Keychain.get("client_secret") }
+    var accessToken: String { Keychain.get("access_token") }
+    var refreshToken: String { Keychain.get("refresh_token") }
+    var isAuthorized: Bool { user != nil }
+
+    private lazy var decoder: JSONDecoder = {
+        let d = JSONDecoder()
+        d.keyDecodingStrategy = .convertFromSnakeCase
+        return d
+    }()
+
+    // MARK: Вход
+
+    func restore() async {
+        defer { isReady = true }
+        guard !accessToken.isEmpty || !refreshToken.isEmpty else { return }
+        user = try? await get("/api/users/whoami")
+    }
+
+    func saveClient(id: String, secret: String) {
+        Keychain.set(id.trimmingCharacters(in: .whitespacesAndNewlines), for: "client_id")
+        Keychain.set(secret.trimmingCharacters(in: .whitespacesAndNewlines), for: "client_secret")
+    }
+
+    func authorizeURL() -> URL? {
+        var c = URLComponents(string: ShikiConfig.host + "/oauth/authorize")
+        c?.queryItems = [
+            URLQueryItem(name: "client_id", value: clientID),
+            URLQueryItem(name: "redirect_uri", value: ShikiConfig.redirect),
+            URLQueryItem(name: "response_type", value: "code"),
+            URLQueryItem(name: "scope", value: ShikiConfig.scopes)
+        ]
+        return c?.url
+    }
+
+    func login(code: String) async throws {
+        let ok = try await tokenRequest([
+            "grant_type": "authorization_code",
+            "client_id": clientID,
+            "client_secret": clientSecret,
+            "code": code.trimmingCharacters(in: .whitespacesAndNewlines),
+            "redirect_uri": ShikiConfig.redirect
+        ])
+        guard ok else { throw ShikiError.unauthorized }
+        user = try await get("/api/users/whoami")
+    }
+
+    func logout() {
+        Keychain.set("", for: "access_token")
+        Keychain.set("", for: "refresh_token")
+        user = nil
+    }
+
+    private func tokenRequest(_ fields: [String: String]) async throws -> Bool {
+        guard let url = URL(string: ShikiConfig.host + "/oauth/token") else { return false }
+        var req = URLRequest(url: url, timeoutInterval: 25)
+        req.httpMethod = "POST"
+        req.setValue(ShikiConfig.userAgent, forHTTPHeaderField: "User-Agent")
+        req.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+        var c = URLComponents()
+        c.queryItems = fields.map { URLQueryItem(name: $0.key, value: $0.value) }
+        req.httpBody = Data((c.percentEncodedQuery ?? "").utf8)
+        let data: Data
+        let resp: URLResponse
+        do {
+            (data, resp) = try await URLSession.shared.data(for: req)
+        } catch {
+            throw ShikiError.network(error.localizedDescription)
+        }
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
+        guard code == 200,
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let access = json["access_token"] as? String else {
+            if fields["grant_type"] == "authorization_code" {
+                throw ShikiError.http(code, String(decoding: data, as: UTF8.self))
+            }
+            return false
+        }
+        Keychain.set(access, for: "access_token")
+        if let refresh = json["refresh_token"] as? String {
+            Keychain.set(refresh, for: "refresh_token")
+        }
+        return true
+    }
+
+    private func refreshTokens() async -> Bool {
+        if let running = refreshing { return await running.value }
+        let task = Task<Bool, Never> { [self] in
+            guard !refreshToken.isEmpty else { return false }
+            let result = try? await tokenRequest([
+                "grant_type": "refresh_token",
+                "client_id": clientID,
+                "client_secret": clientSecret,
+                "refresh_token": refreshToken
+            ])
+            return result ?? false
+        }
+        refreshing = task
+        let ok = await task.value
+        refreshing = nil
+        return ok
+    }
+
+    // MARK: Сетевой слой
+
+    func send(_ method: String, _ path: String, query: [URLQueryItem] = [],
+              json: Any? = nil, attempt: Int = 0) async throws -> Data {
+        guard var comps = URLComponents(string: ShikiConfig.host + path) else {
+            throw ShikiError.network("неверный адрес")
+        }
+        if !query.isEmpty { comps.queryItems = query }
+        guard let url = comps.url else { throw ShikiError.network("неверный адрес") }
+
+        var req = URLRequest(url: url, timeoutInterval: 25)
+        req.httpMethod = method
+        req.setValue(ShikiConfig.userAgent, forHTTPHeaderField: "User-Agent")
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        let token = accessToken
+        if !token.isEmpty { req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        if let json {
+            req.httpBody = try JSONSerialization.data(withJSONObject: json)
+            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
+
+        await pacer.wait()
+        let data: Data
+        let resp: URLResponse
+        do {
+            (data, resp) = try await URLSession.shared.data(for: req)
+        } catch let error as URLError where error.code == .cancelled {
+            throw CancellationError()
+        } catch {
+            throw ShikiError.network(error.localizedDescription)
+        }
+
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? -1
+        switch code {
+        case 200...299:
+            return data
+        case 401:
+            if attempt == 0, await refreshTokens() {
+                return try await send(method, path, query: query, json: json, attempt: 1)
+            }
+            user = nil
+            throw ShikiError.unauthorized
+        case 429 where attempt < 2:
+            try? await Task.sleep(nanoseconds: 1_200_000_000)
+            return try await send(method, path, query: query, json: json, attempt: attempt + 1)
+        default:
+            throw ShikiError.http(code, String(decoding: data, as: UTF8.self))
+        }
+    }
+
+    func get<T: Decodable>(_ path: String, query: [URLQueryItem] = []) async throws -> T {
+        let data = try await send("GET", path, query: query)
+        do {
+            return try decoder.decode(T.self, from: data)
+        } catch {
+            throw ShikiError.decoding("\(error)")
+        }
+    }
+
+    private func decode<T: Decodable>(_ data: Data) throws -> T {
+        do {
+            return try decoder.decode(T.self, from: data)
+        } catch {
+            throw ShikiError.decoding("\(error)")
+        }
+    }
+
+    // MARK: Методы API
+
+    func media(kind: MediaKind, order: String, status: String? = nil, search: String? = nil,
+               page: Int = 1, limit: Int = 24) async throws -> [Media] {
+        var q = [
+            URLQueryItem(name: "limit", value: String(limit)),
+            URLQueryItem(name: "page", value: String(page)),
+            URLQueryItem(name: "order", value: order)
+        ]
+        if let status, !status.isEmpty { q.append(URLQueryItem(name: "status", value: status)) }
+        if let search, !search.isEmpty { q.append(URLQueryItem(name: "search", value: search)) }
+        return try await get("/api/\(kind.path)", query: q)
+    }
+
+    func detail(_ ref: MediaRef) async throws -> MediaDetail {
+        try await get("/api/\(ref.kind.path)/\(ref.id)")
+    }
+
+    func animeRates(status: String) async throws -> [RateEntry] {
+        guard let user else { throw ShikiError.unauthorized }
+        let q = [
+            URLQueryItem(name: "status", value: status),
+            URLQueryItem(name: "limit", value: "200")
+        ]
+        return try await get("/api/users/\(user.id)/anime_rates", query: q)
+    }
+
+    @discardableResult
+    func updateRate(id: Int, episodes: Int? = nil, status: String? = nil, score: Int? = nil) async throws -> UserRate {
+        var fields: [String: Any] = [:]
+        if let episodes { fields["episodes"] = episodes }
+        if let status { fields["status"] = status }
+        if let score { fields["score"] = score }
+        let data = try await send("PATCH", "/api/v2/user_rates/\(id)", json: ["user_rate": fields])
+        return try decode(data)
+    }
+
+    func createRate(animeID: Int, status: String) async throws -> UserRate {
+        guard let user else { throw ShikiError.unauthorized }
+        let body: [String: Any] = ["user_rate": [
+            "user_id": user.id,
+            "target_id": animeID,
+            "target_type": "Anime",
+            "status": status
+        ] as [String: Any]]
+        let data = try await send("POST", "/api/v2/user_rates", json: body)
+        return try decode(data)
+    }
+
+    func deleteRate(id: Int) async throws {
+        _ = try await send("DELETE", "/api/v2/user_rates/\(id)")
+    }
+}
