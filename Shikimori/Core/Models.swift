@@ -173,7 +173,7 @@ struct MediaDetail: Codable, Identifiable {
     /// Описание на Shikimori хранится с разметкой вида [character=1]Имя[/character]: убираем теги.
     var infoLines: [(String, String)] {
         var r: [(String, String)] = []
-        if let k = kind, !k.isEmpty { r.append(("Тип", k.uppercased() == k ? k : k.capitalized)) }
+        if let k = kind, !k.isEmpty { r.append(("Тип", kindTitle(k))) }
         if let n = studios?.compactMap(\.name), !n.isEmpty { r.append(("Студия", n.joined(separator: ", "))) }
         if let d = duration, d > 0 { r.append(("Длительность", "\(d) мин.")) }
         if let a = airedOn, !a.isEmpty { r.append(("Выход", a)) }
@@ -193,7 +193,11 @@ struct RateEntry: Codable, Identifiable, Hashable {
     var score: Int?
     var status: String?
     var episodes: Int?
+    var chapters: Int?
     var anime: Media?
+    var manga: Media?
+    /// Произведение из записи списка (аниме или манга/ранобэ).
+    var media: Media? { anime ?? manga }
 }
 
 struct UserImage: Codable, Hashable {
@@ -235,4 +239,31 @@ func releaseStatusTitle(_ raw: String?) -> String {
     case "released": return "Вышло"
     default: return "—"
     }
+}
+
+
+func kindTitle(_ k: String) -> String {
+    switch k {
+    case "tv": return "ТВ-сериал"
+    case "movie": return "Фильм"
+    case "ova": return "OVA"
+    case "ona": return "ONA"
+    case "special": return "Спешл"
+    case "tv_special": return "ТВ-спешл"
+    case "music": return "Клип"
+    case "pv": return "Промо"
+    case "cm": return "Реклама"
+    case "manga": return "Манга"
+    case "manhwa": return "Манхва"
+    case "manhua": return "Маньхуа"
+    case "light_novel": return "Ранобэ"
+    case "novel": return "Новелла"
+    case "one_shot": return "Ваншот"
+    case "doujin": return "Додзинси"
+    default: return k
+    }
+}
+
+extension Media {
+    var isRanobe: Bool { kind == "light_novel" || kind == "novel" }
 }

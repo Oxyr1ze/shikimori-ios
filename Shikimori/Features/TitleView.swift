@@ -2,6 +2,7 @@ import SwiftUI
 
 @MainActor
 final class TitleModel: ObservableObject {
+    var ref = MediaRef(id: 0, kind: .anime)
     @Published var detail: MediaDetail?
     @Published var error: String?
     @Published var busy = false
@@ -9,6 +10,7 @@ final class TitleModel: ObservableObject {
     @Published var similar: [Media] = []
 
     func load(_ ref: MediaRef) async {
+        self.ref = ref
         error = nil
         do {
             detail = try await AuthManager.shared.detail(ref)
@@ -33,16 +35,24 @@ final class TitleModel: ObservableObject {
             if let rate = d.userRate {
                 detail?.userRate = try await AuthManager.shared.updateRate(id: rate.id, status: status.rawValue)
             } else {
-                detail?.userRate = try await AuthManager.shared.createRate(animeID: d.id, status: status.rawValue)
+                detail?.userRate = try await AuthManager.shared.createRate(
+                    animeID: d.id, status: status.rawValue,
+                    targetType: ref.kind == .anime ? "Anime" : "Manga")
             }
         }
     }
 
     func changeEpisodes(by delta: Int) async {
         guard let rate = detail?.userRate else { return }
-        var next = max(0, (rate.episodes ?? 0) + delta)
-        if let total = detail?.episodes, total > 0 { next = min(next, total) }
-        await run { detail?.userRate = try await AuthManager.shared.updateRate(id: rate.id, episodes: next) }
+        if ref.kind == .anime {
+            var next = max(0, (rate.episodes ?? 0) + delta)
+            if let total = detail?.episodes, total > 0 { next = min(next, total) }
+            await run { detail?.userRate = try await AuthManager.shared.updateRate(id: rate.id, episodes: next) }
+        } else {
+            var next = max(0, (rate.chapters ?? 0) + delta)
+            if let total = detail?.chapters, total > 0 { next = min(next, total) }
+            await run { detail?.userRate = try await AuthManager.shared.updateRate(id: rate.id, chapters: next) }
+        }
     }
 
     func setScore(_ score: Int) async {
@@ -112,13 +122,7 @@ struct TitleView: View {
 
             stats(d)
 
-            if ref.kind == .anime {
-                listCard(d)
-            } else {
-                Text("Редактирование списков манги и ранобэ добавим следующим шагом.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
+            listCard(d)
 
             if let text = d.plainDescription {
                 Text(text).font(.body)
@@ -253,15 +257,16 @@ struct TitleView: View {
 
             if let rate = d.userRate {
                 HStack {
-                    Text("Эпизоды").font(.body.weight(.semibold))
+                    Text(ref.kind == .anime ? "Эпизоды" : "Главы").font(.body.weight(.semibold))
                     Spacer()
                     Button { Task { await model.changeEpisodes(by: -1) } } label: {
                         Image(systemName: "minus")
                     }
                     .buttonStyle(.glass)
                     .accessibilityLabel("Меньше")
-                    let total = d.episodes ?? 0
-                    Text(total > 0 ? "\(rate.episodes ?? 0) / \(total)" : "\(rate.episodes ?? 0)")
+                    let total = (ref.kind == .anime ? d.episodes : d.chapters) ?? 0
+                    let done = (ref.kind == .anime ? rate.episodes : rate.chapters) ?? 0
+                    Text(total > 0 ? "\(done) / \(total)" : "\(done)")
                         .font(.headline.weight(.heavy))
                         .frame(minWidth: 64)
                     Button { Task { await model.changeEpisodes(by: 1) } } label: {

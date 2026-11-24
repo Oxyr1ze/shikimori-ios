@@ -289,6 +289,25 @@ final class AuthManager: ObservableObject {
         return result
     }
 
+    /// Список манги (kind == .manga) или ранобэ (kind == .ranobe): оба лежат в manga_rates.
+    func mangaRates(kind: MediaKind, status: String) async throws -> [RateEntry] {
+        guard let user else { throw ShikiError.unauthorized }
+        let q = [
+            URLQueryItem(name: "status", value: status),
+            URLQueryItem(name: "limit", value: "200")
+        ]
+        var entries: [RateEntry] = try await get("/api/users/\(user.id)/manga_rates", query: q)
+        entries = entries.filter { e in
+            guard let m = e.manga else { return false }
+            return kind == .ranobe ? m.isRanobe : !m.isRanobe
+        }
+        let posters = await fetchPosters(ids: entries.compactMap { $0.manga?.id }, kind: kind)
+        for i in entries.indices {
+            if let id = entries[i].manga?.id { entries[i].manga?.posterURLs = posters[id] }
+        }
+        return entries
+    }
+
     func animeRates(status: String) async throws -> [RateEntry] {
         guard let user else { throw ShikiError.unauthorized }
         let q = [
@@ -304,21 +323,22 @@ final class AuthManager: ObservableObject {
     }
 
     @discardableResult
-    func updateRate(id: Int, episodes: Int? = nil, status: String? = nil, score: Int? = nil) async throws -> UserRate {
+    func updateRate(id: Int, episodes: Int? = nil, chapters: Int? = nil, status: String? = nil, score: Int? = nil) async throws -> UserRate {
         var fields: [String: Any] = [:]
         if let episodes { fields["episodes"] = episodes }
+        if let chapters { fields["chapters"] = chapters }
         if let status { fields["status"] = status }
         if let score { fields["score"] = score }
         let data = try await send("PATCH", "/api/v2/user_rates/\(id)", json: ["user_rate": fields])
         return try decode(data)
     }
 
-    func createRate(animeID: Int, status: String) async throws -> UserRate {
+    func createRate(animeID: Int, status: String, targetType: String = "Anime") async throws -> UserRate {
         guard let user else { throw ShikiError.unauthorized }
         let body: [String: Any] = ["user_rate": [
             "user_id": user.id,
             "target_id": animeID,
-            "target_type": "Anime",
+            "target_type": targetType,
             "status": status
         ] as [String: Any]]
         let data = try await send("POST", "/api/v2/user_rates", json: body)
