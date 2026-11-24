@@ -453,3 +453,40 @@ struct PersonDetail: Codable {
     }
     var posterURLs: [URL] { urlList([image?.original, image?.preview, image?.x96]) }
 }
+
+
+/// Элемент статистики: в оценках имя может быть числом, в типах строкой.
+struct StatEntry: Decodable {
+    var name: String
+    var value: Int
+
+    enum CodingKeys: String, CodingKey { case name, value }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        if let s = try? c.decode(String.self, forKey: .name) {
+            name = s
+        } else if let i = try? c.decode(Int.self, forKey: .name) {
+            name = String(i)
+        } else if let d = try? c.decode(Double.self, forKey: .name) {
+            name = String(Int(d))
+        } else {
+            name = ""
+        }
+        value = (try? c.decode(Int.self, forKey: .value)) ?? 0
+    }
+}
+
+struct StatusStat: Decodable {
+    var name: String
+    var size: Int
+}
+
+struct UserStats: Decodable {
+    var fullStatuses: [String: [StatusStat]]?
+    var scores: [String: [StatEntry]]?
+}
+
+struct UserProfileInfo: Decodable {
+    var stats: UserStats?
+}

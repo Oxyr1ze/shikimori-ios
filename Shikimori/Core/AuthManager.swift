@@ -292,6 +292,12 @@ final class AuthManager: ObservableObject {
         try await get("/api/people/\(id)")
     }
 
+    func userStats() async -> UserStats? {
+        guard let user else { return nil }
+        let info: UserProfileInfo? = try? await get("/api/users/\(user.id)")
+        return info?.stats
+    }
+
     func favourites() async -> Favourites? {
         guard let user, let r: FavouritesResponse = try? await get("/api/users/\(user.id)/favourites") else { return nil }
         var fav = Favourites()

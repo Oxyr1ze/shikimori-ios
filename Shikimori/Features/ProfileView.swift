@@ -3,12 +3,14 @@ import SwiftUI
 @MainActor
 final class ProfileModel: ObservableObject {
     @Published var favourites: Favourites?
+    @Published var stats: UserStats?
     @Published var friends: [ShikiUser] = []
     @Published var history: [HistoryItem] = []
 
     func load() async {
         let api = AuthManager.shared
         favourites = await api.favourites()
+        stats = await api.userStats()
         friends = await api.friends()
         history = await api.history()
     }
@@ -48,6 +50,7 @@ struct ProfileView: View {
                     .padding(.vertical, 24)
                     .background(Theme.card, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
 
+                    if let stats = model.stats { StatsView(stats: stats) }
                     if let fav = model.favourites {
                         MediaRow(title: "Избранное: аниме", items: fav.animes, kind: .anime).padding(.horizontal, -20)
                         MediaRow(title: "Избранное: манга", items: fav.mangas, kind: .manga).padding(.horizontal, -20)
