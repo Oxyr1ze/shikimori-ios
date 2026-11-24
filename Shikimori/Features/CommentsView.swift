@@ -8,6 +8,7 @@ final class CommentsModel: ObservableObject {
     @Published var canLoadMore = true
     @Published var error: String?
     @Published var sending = false
+    @Published var blocks: [Int: [CBlock]] = [:]
     private var page = 1
     private let pageSize = 30
 
@@ -28,7 +29,9 @@ final class CommentsModel: ObservableObject {
             // Shikimori отдаёт на один комментарий больше лимита, если есть следующая страница.
             let items = try await AuthManager.shared.comments(topicID: topicID, page: page, limit: pageSize)
             let known = Set(comments.map(\.id))
-            comments += items.filter { !known.contains($0.id) }.prefix(pageSize)
+            let fresh = Array(items.filter { !known.contains($0.id) }.prefix(pageSize))
+            for c in fresh { blocks[c.id] = c.makeBlocks() }
+            comments += fresh
             canLoadMore = items.count > pageSize
             page += 1
         } catch is CancellationError {
@@ -46,6 +49,7 @@ final class CommentsModel: ObservableObject {
         defer { sending = false }
         do {
             let c = try await AuthManager.shared.postComment(topicID: topicID, body: body)
+            blocks[c.id] = c.makeBlocks()
             comments.insert(c, at: 0)
             return true
         } catch {
@@ -132,7 +136,7 @@ struct CommentsView: View {
                         Text("оффтоп").font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                Text(c.plainBody).font(.subheadline)
+                CommentBlocksView(blocks: model.blocks[c.id] ?? [])
             }
             Spacer(minLength: 0)
         }

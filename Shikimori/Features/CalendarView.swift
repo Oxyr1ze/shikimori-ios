@@ -79,6 +79,7 @@ struct CalendarView: View {
             .padding(.bottom, 100)
         }
         .background(AppBackground())
+        .navigationDestination(for: MediaRef.self) { TitleView(ref: $0) }
         .navigationTitle("Календарь")
         .navigationBarTitleDisplayMode(.inline)
         .task { if model.days.isEmpty { await model.load() } }

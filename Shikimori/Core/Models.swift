@@ -177,8 +177,8 @@ struct MediaDetail: Codable, Identifiable {
         if let k = kind, !k.isEmpty { r.append(("Тип", kindTitle(k))) }
         if let n = studios?.compactMap(\.name), !n.isEmpty { r.append(("Студия", n.joined(separator: ", "))) }
         if let d = duration, d > 0 { r.append(("Длительность", "\(d) мин.")) }
-        if let a = airedOn, !a.isEmpty { r.append(("Выход", a)) }
-        if let a = releasedOn, !a.isEmpty { r.append(("Завершён", a)) }
+        if let a = airedOn, !a.isEmpty { r.append(("Выход", ruDate(a))) }
+        if let a = releasedOn, !a.isEmpty { r.append(("Завершён", ruDate(a))) }
         if let g = rating, !g.isEmpty, g != "none" { r.append(("Возраст", g.uppercased().replacingOccurrences(of: "_", with: "-"))) }
         return r
     }
@@ -273,6 +273,7 @@ extension Media {
 struct Comment: Codable, Identifiable, Hashable {
     var id: Int
     var body: String?
+    var htmlBody: String?
     var createdAt: String?
     var isOfftopic: Bool?
     var user: ShikiUser?
@@ -313,4 +314,17 @@ struct CalendarItem: Codable, Identifiable, Hashable {
         let g = ISO8601DateFormatter()
         return f.date(from: s) ?? g.date(from: s)
     }
+}
+
+
+/// "2013-04-07" -> "7 апреля 2013"
+func ruDate(_ s: String) -> String {
+    let inp = DateFormatter()
+    inp.locale = Locale(identifier: "en_US_POSIX")
+    inp.dateFormat = "yyyy-MM-dd"
+    guard let d = inp.date(from: s) else { return s }
+    let out = DateFormatter()
+    out.locale = Locale(identifier: "ru_RU")
+    out.dateFormat = "d MMMM yyyy"
+    return out.string(from: d)
 }
