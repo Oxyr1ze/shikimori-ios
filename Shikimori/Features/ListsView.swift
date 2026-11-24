@@ -104,6 +104,7 @@ struct ListsView: View {
         }
     }
 
+    @ViewBuilder
     private func row(_ entry: RateEntry, _ anime: Media) -> some View {
         let isAnime = model.kind == .anime
         HStack(spacing: 12) {
