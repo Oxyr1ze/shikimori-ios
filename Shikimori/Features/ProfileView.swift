@@ -49,10 +49,10 @@ struct ProfileView: View {
                     .background(Theme.card, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
 
                     if let fav = model.favourites {
-                        MediaRow(title: "Избранное: аниме", items: fav.animes ?? [], kind: .anime)
-                        MediaRow(title: "Избранное: манга", items: fav.mangas ?? [], kind: .manga)
-                        MediaRow(title: "Избранное: ранобэ", items: fav.ranobe ?? [], kind: .ranobe)
-                        favouriteCharacters(fav.characters ?? [])
+                        MediaRow(title: "Избранное: аниме", items: fav.animes, kind: .anime)
+                        MediaRow(title: "Избранное: манга", items: fav.mangas, kind: .manga)
+                        MediaRow(title: "Избранное: ранобэ", items: fav.ranobe, kind: .ranobe)
+                        favouriteCharacters(fav.characters)
                     }
                     friendsRow
                     historyList
@@ -147,16 +147,31 @@ struct ProfileView: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Недавняя активность").font(.title3.weight(.bold))
                 ForEach(items) { item in
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(item.plainDescription).font(.subheadline)
-                        Text(item.dateText).font(.caption).foregroundStyle(.secondary)
-                    }
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    historyRow(item)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder
+    private func historyRow(_ item: HistoryItem) -> some View {
+        let content = VStack(alignment: .leading, spacing: 4) {
+            if let t = item.target, !t.title.isEmpty {
+                Text(t.title).font(.subheadline.weight(.bold)).multilineTextAlignment(.leading)
+            }
+            Text(item.plainDescription).font(.subheadline).multilineTextAlignment(.leading)
+            Text(item.dateText).font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+
+        if let t = item.target {
+            NavigationLink(value: MediaRef(id: t.id, kind: t.kind)) { content }
+                .buttonStyle(.plain)
+        } else {
+            content
         }
     }
 }

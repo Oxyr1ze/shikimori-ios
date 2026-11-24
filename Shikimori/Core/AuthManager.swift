@@ -285,19 +285,18 @@ final class AuthManager: ObservableObject {
     }
 
     func favourites() async -> Favourites? {
-        guard let user, var fav: Favourites = try? await get("/api/users/\(user.id)/favourites") else { return nil }
-        if let list = fav.animes {
-            let p = await fetchPosters(ids: list.map(\.id), kind: .anime)
-            fav.animes = list.map { var m = $0; m.posterURLs = p[m.id]; return m }
-        }
-        if let list = fav.mangas {
-            let p = await fetchPosters(ids: list.map(\.id), kind: .manga)
-            fav.mangas = list.map { var m = $0; m.posterURLs = p[m.id]; return m }
-        }
-        if let list = fav.ranobe {
-            let p = await fetchPosters(ids: list.map(\.id), kind: .ranobe)
-            fav.ranobe = list.map { var m = $0; m.posterURLs = p[m.id]; return m }
-        }
+        guard let user, let r: FavouritesResponse = try? await get("/api/users/\(user.id)/favourites") else { return nil }
+        var fav = Favourites()
+        fav.animes = (r.animes ?? []).map(\.media)
+        fav.mangas = (r.mangas ?? []).map(\.media)
+        fav.ranobe = (r.ranobe ?? []).map(\.media)
+        fav.characters = (r.characters ?? []).map(\.person)
+        let pa = await fetchPosters(ids: fav.animes.map(\.id), kind: .anime)
+        for i in fav.animes.indices { fav.animes[i].posterURLs = pa[fav.animes[i].id] }
+        let pm = await fetchPosters(ids: fav.mangas.map(\.id), kind: .manga)
+        for i in fav.mangas.indices { fav.mangas[i].posterURLs = pm[fav.mangas[i].id] }
+        let pr = await fetchPosters(ids: fav.ranobe.map(\.id), kind: .ranobe)
+        for i in fav.ranobe.indices { fav.ranobe[i].posterURLs = pr[fav.ranobe[i].id] }
         return fav
     }
 

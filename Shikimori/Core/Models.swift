@@ -330,17 +330,61 @@ func ruDate(_ s: String) -> String {
 }
 
 
-struct Favourites: Codable {
-    var animes: [Media]?
-    var mangas: [Media]?
-    var ranobe: [Media]?
-    var characters: [CastPerson]?
+/// В избранном картинка приходит одной строкой (а не набором размеров, как в каталоге).
+struct FavouriteItem: Codable, Hashable {
+    var id: Int
+    var name: String?
+    var russian: String?
+    var image: String?
+    var url: String?
+
+    var media: Media {
+        var m = Media(id: id, name: name ?? "")
+        m.russian = russian
+        m.image = ImageSet(original: image, preview: image, x96: image, x48: image)
+        return m
+    }
+    var person: CastPerson {
+        CastPerson(id: id, name: name, russian: russian, image: ImageSet(original: image, preview: image, x96: image, x48: image))
+    }
+}
+
+struct Favourites {
+    var animes: [Media] = []
+    var mangas: [Media] = []
+    var ranobe: [Media] = []
+    var characters: [CastPerson] = []
+}
+
+struct FavouritesResponse: Codable {
+    var animes: [FavouriteItem]?
+    var mangas: [FavouriteItem]?
+    var ranobe: [FavouriteItem]?
+    var characters: [FavouriteItem]?
+}
+
+struct HistoryTarget: Codable, Hashable {
+    var id: Int
+    var name: String?
+    var russian: String?
+    var url: String?
+    var title: String {
+        if let r = russian, !r.isEmpty { return r }
+        return name ?? ""
+    }
+    var kind: MediaKind {
+        let u = url ?? ""
+        if u.contains("/ranobe/") { return .ranobe }
+        if u.contains("/mangas/") { return .manga }
+        return .anime
+    }
 }
 
 struct HistoryItem: Codable, Identifiable, Hashable {
     var id: Int
     var createdAt: String?
     var description: String?
+    var target: HistoryTarget?
 
     var plainDescription: String {
         let t = (description ?? "")
