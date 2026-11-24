@@ -97,3 +97,6 @@
 3. Создать остальные документы: ROADMAP, FEATURES, ARCHITECTURE, CHANGELOG, SETUP.
 ## Сборка 0.1.14
 - Статистика в профиле (статусы списков, средняя оценка, распределение оценок), структура ответа сверена с исходным кодом Shikimori (UserProfileSerializer, StatisticsQuery). Ждёт проверки на iPhone.
+## Сборка 0.1.14 проверена
+- Статистика в профиле (аниме и манга): Проверено на iPhone.
+- Созданы документы: FEATURES, ROADMAP, ARCHITECTURE, CHANGELOG, SETUP.
