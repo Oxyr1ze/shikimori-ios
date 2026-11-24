@@ -58,13 +58,15 @@ struct MediaCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             PosterView(urls: media.thumbCandidates)
-                .frame(width: width)
+                .frame(width: width, height: width * 1.5)
+                .clipped()
             Text(media.title)
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
                 .frame(width: width, alignment: .leading)
         }
+        .frame(width: width, alignment: .topLeading)
     }
 }
 
@@ -80,7 +82,7 @@ struct MediaRow: View {
                     .font(.title3.weight(.bold))
                     .padding(.horizontal, 20)
                 ScrollView(.horizontal, showsIndicators: false) {
-                    LazyHStack(alignment: .top, spacing: 12) {
+                    HStack(alignment: .top, spacing: 12) {
                         ForEach(items) { item in
                             NavigationLink(value: MediaRef(id: item.id, kind: kind)) {
                                 MediaCard(media: item)
@@ -90,6 +92,7 @@ struct MediaRow: View {
                     }
                     .padding(.horizontal, 20)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
