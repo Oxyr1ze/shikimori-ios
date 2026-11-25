@@ -52,16 +52,10 @@ struct ProfileView: View {
             ScrollView {
                 VStack(spacing: 18) {
                     VStack(spacing: 12) {
-                        AsyncImage(url: auth.user?.avatarURL) { phase in
-                            if let image = phase.image {
-                                image.resizable().scaledToFill()
-                            } else {
-                                Image(systemName: "person.crop.circle.fill")
-                                    .resizable().foregroundStyle(.secondary)
-                            }
-                        }
-                        .frame(width: 96, height: 96)
-                        .clipShape(Circle())
+                        Color(UIColor.tertiarySystemFill)
+                            .frame(width: 96, height: 96)
+                            .overlay { if let u = auth.user?.avatarURL { RemoteImage(urls: [u]) } }
+                            .clipShape(Circle())
                         Text(auth.user?.nickname ?? "")
                             .font(.title2.weight(.heavy))
                     }

@@ -29,7 +29,7 @@ final class TitleModel: ObservableObject {
             if !s.isEmpty { similar = s; DiskCache.save(s, key: "similar-\(base)") }
         } catch is CancellationError {
         } catch {
-            self.error = error.localizedDescription
+            self.error = detail == nil ? error.localizedDescription : offlineMessage
         }
     }
 

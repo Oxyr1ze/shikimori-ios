@@ -69,7 +69,16 @@ final class AuthManager: ObservableObject {
     func restore() async {
         defer { isReady = true }
         guard !accessToken.isEmpty || !refreshToken.isEmpty else { return }
-        user = try? await get("/api/users/whoami")
+        do {
+            let me: ShikiUser = try await get("/api/users/whoami")
+            user = me
+            DiskCache.save(me, key: "me")
+        } catch ShikiError.unauthorized {
+            user = nil
+        } catch {
+            // Нет интернета или сервер недоступен: входить заново не нужно, работаем с сохранёнными данными.
+            user = DiskCache.load(ShikiUser.self, key: "me")
+        }
     }
 
     func saveClient(id: String, secret: String) {

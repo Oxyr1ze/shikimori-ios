@@ -1,24 +1,65 @@
 import SwiftUI
+import CryptoKit
+
+/// Хранение картинок на телефоне: однажды загруженный постер потом открывается и без интернета.
+enum ImageCache {
+    private static let memory: NSCache<NSString, UIImage> = {
+        let c = NSCache<NSString, UIImage>()
+        c.countLimit = 400
+        return c
+    }()
+
+    private static let folder: URL = {
+        let base = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+        let dir = base.appendingPathComponent("ImageCache", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }()
+
+    private static func file(_ url: URL) -> URL {
+        let hash = SHA256.hash(data: Data(url.absoluteString.utf8)).map { String(format: "%02x", $0) }.joined()
+        return folder.appendingPathComponent(hash)
+    }
+
+    static func cached(_ url: URL) -> UIImage? {
+        let key = url.absoluteString as NSString
+        if let m = memory.object(forKey: key) { return m }
+        guard let data = try? Data(contentsOf: file(url)), let img = UIImage(data: data) else { return nil }
+        memory.setObject(img, forKey: key)
+        return img
+    }
+
+    static func fetch(_ url: URL) async -> UIImage? {
+        if let c = cached(url) { return c }
+        guard let (data, resp) = try? await URLSession.shared.data(from: url),
+              (resp as? HTTPURLResponse)?.statusCode == 200,
+              let img = UIImage(data: data) else { return nil }
+        try? data.write(to: file(url), options: .atomic)
+        memory.setObject(img, forKey: url.absoluteString as NSString)
+        return img
+    }
+}
 
 /// Картинка с запасными адресами: если первый не загрузился, пробуем следующий.
 struct RemoteImage: View {
     let urls: [URL]
-    @State private var index = 0
+    @State private var image: UIImage?
 
     var body: some View {
-        if index < urls.count {
-            AsyncImage(url: urls[index]) { phase in
-                if let image = phase.image {
-                    image.resizable().scaledToFill()
-                } else if phase.error != nil {
-                    Color.clear.onAppear { index += 1 }
-                } else {
-                    Color.clear
+        Group {
+            if let image {
+                Image(uiImage: image).resizable().scaledToFill()
+            } else {
+                Color.clear
+            }
+        }
+        .task(id: urls) {
+            for u in urls {
+                if let img = await ImageCache.fetch(u) {
+                    image = img
+                    return
                 }
             }
-            .id(index)
-        } else {
-            Color.clear
         }
     }
 }
