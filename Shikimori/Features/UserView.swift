@@ -8,6 +8,8 @@ final class UserModel: ObservableObject {
     @Published var friends: [ShikiUser] = []
     @Published var history: [HistoryItem] = []
     @Published var aboutBlocks: [CBlock] = []
+    @Published var comments: [Comment] = []
+    @Published var commentBlocks: [Int: [CBlock]] = [:]
     @Published var loaded = false
 
     init(user: ShikiUser) { self.user = user }
@@ -20,6 +22,7 @@ final class UserModel: ObservableObject {
         if favourites == nil { favourites = DiskCache.load(Favourites.self, key: key("fav")) }
         if friends.isEmpty { friends = DiskCache.load([ShikiUser].self, key: key("friends")) ?? [] }
         if history.isEmpty { history = DiskCache.load([HistoryItem].self, key: key("history")) ?? [] }
+        if comments.isEmpty, let c = DiskCache.load([Comment].self, key: key("comments")) { setComments(c) }
 
         if let i = await api.userProfile(id: user.id) {
             apply(i)
@@ -34,6 +37,15 @@ final class UserModel: ObservableObject {
         if !fr.isEmpty { friends = fr; DiskCache.save(fr, key: key("friends")) }
         let h = await api.history(id: user.id)
         if !h.isEmpty { history = h; DiskCache.save(h, key: key("history")) }
+        if let c = try? await api.comments(topicID: user.id, type: "User", page: 1, limit: 10) {
+            setComments(Array(c.prefix(10)))
+            DiskCache.save(comments, key: key("comments"))
+        }
+    }
+
+    private func setComments(_ list: [Comment]) {
+        comments = list
+        for c in list { commentBlocks[c.id] = c.makeBlocks() }
     }
 
     private func apply(_ i: UserProfileInfo) {
@@ -46,13 +58,9 @@ final class UserModel: ObservableObject {
     }
 }
 
-/// Страница любого пользователя Shikimori: о себе, статистика, избранное, друзья, активность.
-struct UserView: View {
-    @StateObject private var model: UserModel
-
-    init(user: ShikiUser) {
-        _model = StateObject(wrappedValue: UserModel(user: user))
-    }
+/// Содержимое профиля. Одинаково для своего профиля и чужих.
+struct UserContent: View {
+    @ObservedObject var model: UserModel
 
     private var subtitle: String {
         var parts: [String] = []
@@ -71,66 +79,84 @@ struct UserView: View {
     }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 18) {
-                VStack(spacing: 10) {
-                    Color(UIColor.tertiarySystemFill)
-                        .frame(width: 96, height: 96)
-                        .overlay { if let u = model.user.avatarURL { RemoteImage(urls: [u]) } }
-                        .clipShape(Circle())
-                    Text(model.user.nickname).font(.title2.weight(.heavy))
-                    if !subtitle.isEmpty {
-                        Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
-                    }
-                    if let last = model.info?.lastOnlineAt, !last.isEmpty {
-                        Text("Был на сайте: \(relativeDateText(last))")
-                            .font(.footnote).foregroundStyle(.secondary)
-                    }
-                    if let site = model.info?.website, !site.isEmpty,
-                       let url = URL(string: "https://" + site) {
-                        Link(site, destination: url).font(.footnote)
-                    }
+        VStack(spacing: 18) {
+            VStack(spacing: 10) {
+                Color(UIColor.tertiarySystemFill)
+                    .frame(width: 96, height: 96)
+                    .overlay { if let u = model.user.avatarURL { RemoteImage(urls: [u]) } }
+                    .clipShape(Circle())
+                Text(model.user.nickname).font(.title2.weight(.heavy))
+                if !subtitle.isEmpty {
+                    Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
                 }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 24)
-                .background(Theme.card, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-
-                if !model.aboutBlocks.isEmpty {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("О себе").font(.title3.weight(.bold))
-                        CommentBlocksView(blocks: model.aboutBlocks)
-                            .environment(\.commentFont, .body)
-                            .environment(\.commentLineSpacing, 4)
-                    }
-                    .padding(16)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-                }
-
-                if let stats = model.info?.stats { StatsView(stats: stats) }
-
-                if let fav = model.favourites {
-                    MediaRow(title: "Избранное: аниме", items: fav.animes, kind: .anime).padding(.horizontal, -20)
-                    MediaRow(title: "Избранное: манга", items: fav.mangas, kind: .manga).padding(.horizontal, -20)
-                    MediaRow(title: "Избранное: ранобэ", items: fav.ranobe, kind: .ranobe).padding(.horizontal, -20)
-                    characters(fav.characters)
-                }
-                friendsRow
-                historyList
-
-                if model.loaded && model.info == nil {
-                    Text("Не удалось загрузить профиль. Возможно, он закрыт или нет интернета.")
+                if let last = model.info?.lastOnlineAt, !last.isEmpty {
+                    Text("Был на сайте: \(relativeDateText(last))")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
+                if let site = model.info?.website, !site.isEmpty,
+                   let url = URL(string: "https://" + site) {
+                    Link(site, destination: url).font(.footnote)
+                }
             }
-            .padding(20)
-            .padding(.bottom, 100)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 24)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+
+            if let stats = model.info?.stats { StatsView(stats: stats) }
+
+            if let fav = model.favourites {
+                MediaRow(title: "Избранное: аниме", items: fav.animes, kind: .anime).padding(.horizontal, -20)
+                MediaRow(title: "Избранное: манга", items: fav.mangas, kind: .manga).padding(.horizontal, -20)
+                MediaRow(title: "Избранное: ранобэ", items: fav.ranobe, kind: .ranobe).padding(.horizontal, -20)
+                characters(fav.characters)
+            }
+            friendsRow
+            historyList
+
+            // «О себе» внизу и свёрнуто: у некоторых людей там очень много текста и картинок
+            if !model.aboutBlocks.isEmpty {
+                SpoilerBlockView(title: "О себе", blocks: model.aboutBlocks)
+                    .environment(\.commentFont, .body)
+                    .environment(\.commentLineSpacing, 4)
+            }
+
+            commentsSection
+
+            if model.loaded && model.info == nil {
+                Text("Не удалось загрузить профиль. Возможно, он закрыт или нет интернета.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
         }
-        .background(AppBackground())
-        .navigationTitle(model.user.nickname)
-        .navigationBarTitleDisplayMode(.inline)
-        .task { await model.load() }
-        .refreshable { await model.load() }
+    }
+
+    @ViewBuilder
+    private var commentsSection: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Комментарии").font(.title3.weight(.bold))
+            if model.comments.isEmpty {
+                if model.loaded {
+                    Text("Комментариев пока нет").font(.subheadline).foregroundStyle(.secondary)
+                }
+            } else {
+                ForEach(model.comments) { c in
+                    CommentRowView(comment: c, blocks: model.commentBlocks[c.id] ?? [])
+                }
+                NavigationLink {
+                    CommentsView(topicID: model.user.id, title: "Комментарии: \(model.user.nickname)",
+                                 type: "User", canPost: false)
+                } label: {
+                    HStack {
+                        Text("Все комментарии").font(.body.weight(.semibold))
+                        Spacer()
+                        Image(systemName: "chevron.right").foregroundStyle(.secondary)
+                    }
+                    .padding(16)
+                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     @ViewBuilder
@@ -207,5 +233,27 @@ struct UserView: View {
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
+    }
+}
+
+/// Страница любого пользователя Shikimori.
+struct UserView: View {
+    @StateObject private var model: UserModel
+
+    init(user: ShikiUser) {
+        _model = StateObject(wrappedValue: UserModel(user: user))
+    }
+
+    var body: some View {
+        ScrollView {
+            UserContent(model: model)
+                .padding(20)
+                .padding(.bottom, 100)
+        }
+        .background(AppBackground())
+        .navigationTitle(model.user.nickname)
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await model.load() }
+        .refreshable { await model.load() }
     }
 }

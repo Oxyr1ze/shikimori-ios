@@ -348,10 +348,10 @@ final class AuthManager: ObservableObject {
         return (try? await get("/api/users/\(uid)/history", query: [URLQueryItem(name: "limit", value: "20")])) ?? []
     }
 
-    func comments(topicID: Int, page: Int, limit: Int = 30) async throws -> [Comment] {
+    func comments(topicID: Int, type: String = "Topic", page: Int, limit: Int = 30) async throws -> [Comment] {
         let q = [
             URLQueryItem(name: "commentable_id", value: String(topicID)),
-            URLQueryItem(name: "commentable_type", value: "Topic"),
+            URLQueryItem(name: "commentable_type", value: type),
             URLQueryItem(name: "page", value: String(page)),
             URLQueryItem(name: "limit", value: String(limit)),
             URLQueryItem(name: "desc", value: "1")

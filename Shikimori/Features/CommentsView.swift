@@ -3,6 +3,7 @@ import SwiftUI
 @MainActor
 final class CommentsModel: ObservableObject {
     let topicID: Int
+    let type: String
     @Published var comments: [Comment] = []
     @Published var loading = false
     @Published var canLoadMore = true
@@ -12,7 +13,7 @@ final class CommentsModel: ObservableObject {
     private var page = 1
     private let pageSize = 30
 
-    init(topicID: Int) { self.topicID = topicID }
+    init(topicID: Int, type: String = "Topic") { self.topicID = topicID; self.type = type }
 
     func reload() async {
         page = 1
@@ -27,7 +28,7 @@ final class CommentsModel: ObservableObject {
         error = nil
         do {
             // Shikimori отдаёт на один комментарий больше лимита, если есть следующая страница.
-            let items = try await AuthManager.shared.comments(topicID: topicID, page: page, limit: pageSize)
+            let items = try await AuthManager.shared.comments(topicID: topicID, type: type, page: page, limit: pageSize)
             let known = Set(comments.map(\.id))
             let fresh = Array(items.filter { !known.contains($0.id) }.prefix(pageSize))
             for c in fresh { blocks[c.id] = c.makeBlocks() }
@@ -61,19 +62,21 @@ final class CommentsModel: ObservableObject {
 
 struct CommentsView: View {
     let title: String
+    let canPost: Bool
     @StateObject private var model: CommentsModel
     @State private var draft = ""
     @FocusState private var focused: Bool
 
-    init(topicID: Int, title: String) {
+    init(topicID: Int, title: String, type: String = "Topic", canPost: Bool = true) {
         self.title = title
-        _model = StateObject(wrappedValue: CommentsModel(topicID: topicID))
+        self.canPost = canPost
+        _model = StateObject(wrappedValue: CommentsModel(topicID: topicID, type: type))
     }
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
-                composer
+                if canPost { composer }
                 ForEach(model.comments) { c in
                     commentRow(c)
                 }
@@ -120,6 +123,16 @@ struct CommentsView: View {
         }
     }
 
+    private func commentRow(_ c: Comment) -> some View {
+        CommentRowView(comment: c, blocks: model.blocks[c.id] ?? [])
+    }
+}
+
+/// Один комментарий: аватар, ник (открывает профиль), дата и текст.
+struct CommentRowView: View {
+    let comment: Comment
+    let blocks: [CBlock]
+
     @ViewBuilder
     private func userLink<L: View>(_ user: ShikiUser?, @ViewBuilder label: () -> L) -> some View {
         if let user {
@@ -129,8 +142,9 @@ struct CommentsView: View {
         }
     }
 
-    private func commentRow(_ c: Comment) -> some View {
-        HStack(alignment: .top, spacing: 12) {
+    var body: some View {
+        let c = comment
+        return HStack(alignment: .top, spacing: 12) {
             userLink(c.user) {
                 Color(UIColor.tertiarySystemFill)
                     .frame(width: 40, height: 40)
@@ -147,7 +161,7 @@ struct CommentsView: View {
                         Text("оффтоп").font(.caption).foregroundStyle(.secondary)
                     }
                 }
-                CommentBlocksView(blocks: model.blocks[c.id] ?? [])
+                CommentBlocksView(blocks: blocks)
             }
             Spacer(minLength: 0)
         }
