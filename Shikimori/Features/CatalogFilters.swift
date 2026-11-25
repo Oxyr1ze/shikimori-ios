@@ -153,40 +153,27 @@ enum CatalogOptions {
     }
 }
 
-// MARK: Элементы интерфейса
+// MARK: Меню в стиле iOS
 
-/// Строка «название — выбранное значение» с выпадающим меню iOS.
-private struct MenuRow<Content: View>: View {
-    let title: String
-    let summary: String
-    var multi = true
-    @ViewBuilder var content: () -> Content
+/// Данные для меню: жанры, студии, издатели (загружаются один раз и кэшируются).
+@MainActor
+final class FilterData: ObservableObject {
+    @Published var genres: [GQLGenre] = []
+    @Published var studios: [ExtraNamed] = []
+    @Published var publishers: [ExtraNamed] = []
 
-    var body: some View {
-        HStack {
-            Text(title)
-            Spacer()
-            if multi {
-                Menu { content() } label: { label }
-                    .menuActionDismissBehavior(.disabled)
-            } else {
-                Menu { content() } label: { label }
-            }
+    func load(kind: MediaKind) async {
+        genres = await AuthManager.shared.genresV2(manga: kind != .anime)
+        if kind == .anime {
+            if studios.isEmpty { studios = await AuthManager.shared.studios() }
+        } else if publishers.isEmpty {
+            publishers = await AuthManager.shared.publishers()
         }
-    }
-
-    private var label: some View {
-        HStack(spacing: 4) {
-            Text(summary.isEmpty ? "Не важно" : summary)
-                .lineLimit(1)
-            Image(systemName: "chevron.up.chevron.down").font(.footnote)
-        }
-        .foregroundStyle(summary.isEmpty ? Color.secondary : Theme.accent)
     }
 }
 
 /// Отдельная страница с поиском для длинных списков (студии, издатели).
-private struct NamedPickerPage: View {
+struct NamedPickerPage: View {
     let title: String
     let items: [ExtraNamed]
     @Binding var selection: Set<Int>
@@ -217,28 +204,24 @@ private struct NamedPickerPage: View {
     }
 }
 
-struct CatalogFiltersView: View {
+/// Содержимое выпадающего меню в правом верхнем углу каталога.
+struct CatalogMenuContent: View {
     let kind: MediaKind
     @Binding var filters: CatalogFilters
-    @Environment(\.dismiss) private var dismiss
-    @State private var genres: [GQLGenre] = []
-    @State private var studios: [ExtraNamed] = []
-    @State private var publishers: [ExtraNamed] = []
+    @ObservedObject var data: FilterData
+    var onNamed: () -> Void
+    var onRandom: () -> Void
 
     private var years: [Int] {
         let current = Calendar.current.component(.year, from: Date()) + 1
         return Array((1960...current).reversed())
     }
 
-    private func summary(_ set: Set<String>, _ options: [(String, String)]) -> String {
-        let mine = options.filter { set.contains($0.0) }
-        if mine.isEmpty { return "" }
-        if mine.count == 1 { return mine[0].1 }
-        return "Выбрано: \(mine.count)"
-    }
+    private func title(_ base: String, _ n: Int) -> String { n > 0 ? "\(base) (\(n))" : base }
 
-    private func multi(_ title: String, _ options: [(String, String)], _ keyPath: WritableKeyPath<CatalogFilters, Set<String>>) -> some View {
-        MenuRow(title: title, summary: summary(filters[keyPath: keyPath], options)) {
+    private func multi(_ name: String, _ options: [(String, String)], _ keyPath: WritableKeyPath<CatalogFilters, Set<String>>) -> some View {
+        let n = options.filter { filters[keyPath: keyPath].contains($0.0) }.count
+        return Menu(title(name, n)) {
             ForEach(options, id: \.0) { option in
                 Toggle(option.1, isOn: Binding(
                     get: { filters[keyPath: keyPath].contains(option.0) },
@@ -248,13 +231,13 @@ struct CatalogFiltersView: View {
                     }))
             }
         }
+        .menuActionDismissBehavior(.disabled)
     }
 
-    private func genreRow(_ title: String, kindName: String) -> some View {
-        let list = genres.filter { $0.kind == kindName }.sorted { $0.display < $1.display }
-        let chosen = list.filter { g in g.intID.map { filters.genreIDs.contains($0) } ?? false }
-        let text = chosen.count == 1 ? chosen[0].display : (chosen.isEmpty ? "" : "Выбрано: \(chosen.count)")
-        return MenuRow(title: title, summary: text) {
+    private func genreMenu(_ name: String, kindName: String) -> some View {
+        let list = data.genres.filter { $0.kind == kindName }.sorted { $0.display < $1.display }
+        let n = list.filter { g in g.intID.map { filters.genreIDs.contains($0) } ?? false }.count
+        return Menu(title(name, n)) {
             ForEach(list, id: \.id) { g in
                 if let id = g.intID {
                     Toggle(g.display, isOn: Binding(
@@ -265,100 +248,56 @@ struct CatalogFiltersView: View {
                 }
             }
         }
-    }
-
-    private func namedRow(_ title: String, items: [ExtraNamed], selection: Binding<Set<Int>>) -> some View {
-        let chosen = items.filter { $0.intID.map { selection.wrappedValue.contains($0) } ?? false }
-        let text = chosen.count == 1 ? (chosen[0].name ?? "") : (selection.wrappedValue.isEmpty ? "" : "Выбрано: \(selection.wrappedValue.count)")
-        return NavigationLink {
-            NamedPickerPage(title: title, items: items, selection: selection)
-        } label: {
-            HStack {
-                Text(title)
-                Spacer()
-                Text(text.isEmpty ? "Не важно" : text)
-                    .lineLimit(1)
-                    .foregroundStyle(text.isEmpty ? Color.secondary : Theme.accent)
-            }
-        }
+        .menuActionDismissBehavior(.disabled)
     }
 
     var body: some View {
-        NavigationStack {
-            Form {
-                let orders = CatalogOptions.orders(for: kind)
-                MenuRow(title: "Сортировка", summary: orders.first { $0.0 == filters.order }?.1 ?? "", multi: false) {
-                    Picker("Сортировка", selection: $filters.order) {
-                        ForEach(orders, id: \.0) { Text($0.1).tag($0.0) }
-                    }
-                }
-
-                multi("Мой список", CatalogOptions.myList(for: kind), \.myList)
-                multi("Статус", CatalogOptions.statuses(for: kind), \.statuses)
-
-                let kinds = CatalogOptions.kinds(for: kind)
-                if !kinds.isEmpty { multi("Тип", kinds, \.kinds) }
-                if kind == .anime { multi("Количество серий", CatalogOptions.episodeCounts, \.kinds) }
-
-                genreRow("Жанры", kindName: "genre")
-                genreRow("Темы", kindName: "theme")
-                if genres.contains(where: { $0.kind == "demographic" }) {
-                    genreRow("Аудитория", kindName: "demographic")
-                }
-
-                multi("Сезон", CatalogOptions.seasons(), \.seasons)
-
-                MenuRow(title: "Год с",
-                        summary: filters.yearFrom > 0 ? String(filters.yearFrom) : "", multi: false) {
-                    Picker("С", selection: $filters.yearFrom) {
-                        Text("Не важно").tag(0)
-                        ForEach(years, id: \.self) { Text(String($0)).tag($0) }
-                    }
-                }
-                MenuRow(title: "Год по",
-                        summary: filters.yearTo > 0 ? String(filters.yearTo) : "", multi: false) {
-                    Picker("По", selection: $filters.yearTo) {
-                        Text("Не важно").tag(0)
-                        ForEach(years, id: \.self) { Text(String($0)).tag($0) }
-                    }
-                }
-
-                if kind == .anime {
-                    multi("Длительность серии", CatalogOptions.durations, \.durations)
-                    multi("Возрастной рейтинг", CatalogOptions.ratings, \.ratings)
-                    multi("Первоисточник", CatalogOptions.origins, \.origins)
-                    namedRow("Студия", items: studios, selection: $filters.studioIDs)
-                } else {
-                    namedRow("Издатель", items: publishers, selection: $filters.publisherIDs)
-                }
-
-                MenuRow(title: "Оценка не ниже",
-                        summary: filters.minScore > 0 ? "\(filters.minScore)" : "", multi: false) {
-                    Picker("Оценка", selection: $filters.minScore) {
-                        Text("Не важно").tag(0)
-                        ForEach((1...9).reversed(), id: \.self) { Text("\($0)").tag($0) }
-                    }
-                }
-            }
-            .navigationTitle("Фильтры")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Сбросить") { filters = CatalogFilters() }
-                        .disabled(filters.isEmpty)
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Готово") { dismiss() }.fontWeight(.semibold)
-                }
-            }
-            .task {
-                genres = await AuthManager.shared.genresV2(manga: kind != .anime)
-                if kind == .anime {
-                    studios = await AuthManager.shared.studios()
-                } else {
-                    publishers = await AuthManager.shared.publishers()
-                }
+        let orders = CatalogOptions.orders(for: kind)
+        Menu("Сортировка") {
+            Picker("Сортировка", selection: $filters.order) {
+                ForEach(orders, id: \.0) { Text($0.1).tag($0.0) }
             }
         }
+        multi("Мой список", CatalogOptions.myList(for: kind), \.myList)
+        multi("Статус", CatalogOptions.statuses(for: kind), \.statuses)
+        let kinds = CatalogOptions.kinds(for: kind)
+        if !kinds.isEmpty { multi("Тип", kinds, \.kinds) }
+        if kind == .anime { multi("Количество серий", CatalogOptions.episodeCounts, \.kinds) }
+        genreMenu("Жанры", kindName: "genre")
+        genreMenu("Темы", kindName: "theme")
+        if data.genres.contains(where: { $0.kind == "demographic" }) {
+            genreMenu("Аудитория", kindName: "demographic")
+        }
+        multi("Сезон", CatalogOptions.seasons(), \.seasons)
+        Menu(filters.yearFrom > 0 ? "Год с (\(filters.yearFrom))" : "Год с") {
+            Picker("Год с", selection: $filters.yearFrom) {
+                Text("Ничего").tag(0)
+                ForEach(years, id: \.self) { Text(String($0)).tag($0) }
+            }
+        }
+        Menu(filters.yearTo > 0 ? "Год по (\(filters.yearTo))" : "Год по") {
+            Picker("Год по", selection: $filters.yearTo) {
+                Text("Ничего").tag(0)
+                ForEach(years, id: \.self) { Text(String($0)).tag($0) }
+            }
+        }
+        if kind == .anime {
+            multi("Длительность серии", CatalogOptions.durations, \.durations)
+            multi("Возрастной рейтинг", CatalogOptions.ratings, \.ratings)
+            multi("Первоисточник", CatalogOptions.origins, \.origins)
+            Button(title("Студия…", filters.studioIDs.count), action: onNamed)
+        } else {
+            Button(title("Издатель…", filters.publisherIDs.count), action: onNamed)
+        }
+        Menu(filters.minScore > 0 ? "Оценка не ниже (\(filters.minScore))" : "Оценка не ниже") {
+            Picker("Оценка", selection: $filters.minScore) {
+                Text("Ничего").tag(0)
+                ForEach((1...9).reversed(), id: \.self) { Text("\($0)").tag($0) }
+            }
+        }
+        Divider()
+        Button("Очистить", role: .destructive) { filters = CatalogFilters() }
+            .disabled(filters.isEmpty)
+        Button("Случайное", systemImage: "shuffle", action: onRandom)
     }
 }

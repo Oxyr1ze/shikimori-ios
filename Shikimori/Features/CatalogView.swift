@@ -45,8 +45,23 @@ final class CatalogModel: ObservableObject {
 
 struct CatalogView: View {
     @StateObject private var model = CatalogModel()
-    @State private var showFilters = false
+    @StateObject private var data = FilterData()
+    @State private var showNamed = false
+    @State private var randomRef: MediaRef?
+    @State private var randomBusy = false
     private let columns = [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)]
+
+    private func openRandom() async {
+        guard !randomBusy else { return }
+        randomBusy = true
+        defer { randomBusy = false }
+        let kind = model.kind
+        if let list = try? await AuthManager.shared.media(
+            kind: kind, order: "random", filters: model.filters.queryItems(kind: kind), page: 1, limit: 1),
+           let first = list.first {
+            randomRef = MediaRef(id: first.id, kind: kind)
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -56,16 +71,6 @@ struct CatalogView: View {
                         ForEach(MediaKind.allCases) { Text($0.title).tag($0) }
                     }
                     .pickerStyle(.segmented)
-
-                    HStack {
-                        Button { showFilters = true } label: {
-                            Label(model.filters.count > 0 ? "Фильтры и сортировка (\(model.filters.count))" : "Фильтры и сортировка",
-                                  systemImage: "slider.horizontal.3")
-                                .lineLimit(1)
-                        }
-                        .buttonStyle(.glass)
-                        Spacer(minLength: 0)
-                    }
 
                     LazyVGrid(columns: columns, spacing: 14) {
                         ForEach(model.items) { item in
@@ -99,10 +104,32 @@ struct CatalogView: View {
             .navigationTitle("Каталог")
             .navigationDestination(for: MediaRef.self) { TitleView(ref: $0) }
             .task { if model.items.isEmpty { await model.reload() } }
-            .sheet(isPresented: $showFilters) {
-                CatalogFiltersView(kind: model.kind, filters: $model.filters)
-                    .presentationDetents([.large])
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    if randomBusy { ProgressView() }
+                    Menu {
+                        CatalogMenuContent(kind: model.kind, filters: $model.filters, data: data,
+                                           onNamed: { showNamed = true },
+                                           onRandom: { Task { await openRandom() } })
+                    } label: {
+                        Image(systemName: model.filters.count > 0
+                              ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease")
+                    }
+                    .accessibilityLabel("Фильтры и сортировка")
+                }
             }
+            .navigationDestination(item: $randomRef) { TitleView(ref: $0) }
+            .sheet(isPresented: $showNamed) {
+                NavigationStack {
+                    if model.kind == .anime {
+                        NamedPickerPage(title: "Студия", items: data.studios, selection: $model.filters.studioIDs)
+                    } else {
+                        NamedPickerPage(title: "Издатель", items: data.publishers, selection: $model.filters.publisherIDs)
+                    }
+                }
+                .presentationDetents([.large])
+            }
+            .task(id: model.kind) { await data.load(kind: model.kind) }
             .onChange(of: model.filters) { _, _ in Task { await model.reload() } }
             .onChange(of: model.kind) { _, _ in
                 model.filters = CatalogFilters()
