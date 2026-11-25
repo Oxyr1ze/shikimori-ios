@@ -55,14 +55,19 @@ struct CatalogFilters: Equatable {
         add("status", csv(statuses))
         if kind != .ranobe { add("kind", csv(kinds)) }
 
-        var seasonTerms = seasons.sorted()
-        if yearFrom > 0 || yearTo > 0 {
-            let from = yearFrom > 0 ? yearFrom : yearTo
-            let to = yearTo > 0 ? yearTo : yearFrom
-            let lo = min(from, to), hi = max(from, to)
-            seasonTerms.append(lo == hi ? "\(lo)" : "\(lo)_\(hi)")
+        let thisYear = Calendar.current.component(.year, from: Date()) + 1
+        let hasYears = yearFrom > 0 || yearTo > 0
+        let lo = yearFrom > 0 ? yearFrom : 1960
+        let hi = yearTo > 0 ? yearTo : thisYear
+        let (a, b) = (min(lo, hi), max(lo, hi))
+        if !seasons.isEmpty {
+            // Сезон без года: подставляем все выбранные годы (или все годы, если год не выбран).
+            var terms: [String] = []
+            for y in a...b { for name in seasons.sorted() { terms.append("\(name)_\(y)") } }
+            add("season", terms.joined(separator: ","))
+        } else if hasYears {
+            add("season", a == b ? "\(a)" : "\(a)_\(b)")
         }
-        add("season", seasonTerms.joined(separator: ","))
 
         if minScore > 0 { add("score", String(minScore)) }
         if kind == .anime {
@@ -141,15 +146,9 @@ enum CatalogOptions {
         "picture_book", "mixed_media", "other"
     ].map { ($0, SiteLabels.origin($0)) }
 
-    /// Сезоны (годы выбираются отдельным пунктом «Период»).
+    /// Сезоны без годов: год выбирается отдельно («Год с», «Год по»).
     static func seasons() -> [(String, String)] {
-        let current = Calendar.current.component(.year, from: Date())
-        var list: [(String, String)] = []
-        let names = [("winter", "зима"), ("spring", "весна"), ("summer", "лето"), ("fall", "осень")]
-        for y in stride(from: current + 1, through: current - 5, by: -1) {
-            for (key, title) in names { list.append(("\(key)_\(y)", "\(title) \(y)")) }
-        }
-        return list
+        [("winter", "Зима"), ("spring", "Весна"), ("summer", "Лето"), ("fall", "Осень")]
     }
 }
 
@@ -220,8 +219,7 @@ struct CatalogMenuContent: View {
     private func title(_ base: String, _ n: Int) -> String { n > 0 ? "\(base) (\(n))" : base }
 
     private func multi(_ name: String, _ options: [(String, String)], _ keyPath: WritableKeyPath<CatalogFilters, Set<String>>) -> some View {
-        let n = options.filter { filters[keyPath: keyPath].contains($0.0) }.count
-        return Menu(title(name, n)) {
+        return Menu(name) {
             ForEach(options, id: \.0) { option in
                 Toggle(option.1, isOn: Binding(
                     get: { filters[keyPath: keyPath].contains(option.0) },
@@ -236,8 +234,7 @@ struct CatalogMenuContent: View {
 
     private func genreMenu(_ name: String, kindName: String) -> some View {
         let list = data.genres.filter { $0.kind == kindName }.sorted { $0.display < $1.display }
-        let n = list.filter { g in g.intID.map { filters.genreIDs.contains($0) } ?? false }.count
-        return Menu(title(name, n)) {
+        return Menu(name) {
             ForEach(list, id: \.id) { g in
                 if let id = g.intID {
                     Toggle(g.display, isOn: Binding(
