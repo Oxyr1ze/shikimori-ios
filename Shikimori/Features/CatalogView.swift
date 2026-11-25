@@ -46,7 +46,7 @@ final class CatalogModel: ObservableObject {
 struct CatalogView: View {
     @StateObject private var model = CatalogModel()
     @StateObject private var data = FilterData()
-    @State private var showNamed = false
+    @State private var showFilters = false
     @State private var randomRef: MediaRef?
     @State private var randomBusy = false
     @State private var applied = CatalogFilters()
@@ -107,12 +107,15 @@ struct CatalogView: View {
             .task { if model.items.isEmpty { await model.reload() } }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    if randomBusy { ProgressView() }
-                    Menu {
-                        CatalogMenuContent(kind: model.kind, filters: $model.filters, data: data,
-                                           onNamed: { showNamed = true },
-                                           onRandom: { Task { await openRandom() } })
-                    } label: {
+                    if randomBusy {
+                        ProgressView()
+                    } else {
+                        Button { Task { await openRandom() } } label: { Image(systemName: "shuffle") }
+                            .accessibilityLabel("Случайное")
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showFilters = true } label: {
                         Image(systemName: model.filters.count > 0
                               ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease")
                     }
@@ -120,33 +123,14 @@ struct CatalogView: View {
                 }
             }
             .navigationDestination(item: $randomRef) { TitleView(ref: $0) }
-            .sheet(isPresented: $showNamed) {
-                NavigationStack {
-                    Group {
-                        if model.kind == .anime {
-                            NamedPickerPage(title: "Студия", items: data.studios, selection: $model.filters.studioIDs)
-                        } else {
-                            NamedPickerPage(title: "Издатель", items: data.publishers, selection: $model.filters.publisherIDs)
-                        }
-                    }
-                    .toolbar {
-                        ToolbarItem(placement: .topBarTrailing) {
-                            Button("Готово") { showNamed = false }.fontWeight(.semibold)
-                        }
-                        ToolbarItem(placement: .topBarLeading) {
-                            Button("Сбросить") {
-                                model.filters.studioIDs = []
-                                model.filters.publisherIDs = []
-                            }
-                        }
-                    }
-                }
-                .presentationDetents([.large])
+            .sheet(isPresented: $showFilters) {
+                CatalogFiltersView(kind: model.kind, filters: $model.filters, data: data)
+                    .presentationDetents([.large])
             }
             .task(id: model.kind) { await data.load(kind: model.kind) }
             .task(id: model.filters) {
                 // Небольшая пауза: пока человек отмечает пункты в меню, список не перестраивается
-                try? await Task.sleep(nanoseconds: 700_000_000)
+                try? await Task.sleep(nanoseconds: 300_000_000)
                 if Task.isCancelled { return }
                 if applied != model.filters {
                     applied = model.filters
