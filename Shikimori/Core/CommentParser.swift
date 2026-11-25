@@ -171,6 +171,7 @@ struct CommentRenderer {
     var blocks: [CBlock] = []
     var current = AttributedString()
     var pending: [CRun] = []
+    var spoilerCount = 0
 
     static func render(html: String) -> [CBlock] {
         var r = CommentRenderer()
@@ -309,6 +310,15 @@ struct CommentRenderer {
                 sub.flush()
                 flush()
                 blocks.append(CBlock(kind: .quote(author: (author?.isEmpty ?? true) ? nil : author, blocks: sub.blocks)))
+            } else if n.hasClass("b-spoiler_block") {
+                let titleNode = n.children.first { $0.tag == "span" }
+                let title = titleNode?.plainText.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                let content = n.children.first { $0.tag == "div" }
+                var sub = CommentRenderer()
+                for c in (content?.children ?? []) { sub.walk(c, CommentStyle(), imageHref: nil) }
+                sub.flush()
+                flush()
+                blocks.append(CBlock(kind: .spoiler(title: title.isEmpty ? "спойлер" : title, blocks: sub.blocks)))
             } else if n.hasClass("b-spoiler") {
                 let title = n.findFirst { $0.tag == "label" }?.plainText.trimmingCharacters(in: .whitespacesAndNewlines) ?? "спойлер"
                 let content = n.findFirst { $0.hasClass("inner") } ?? n
@@ -350,7 +360,11 @@ struct CommentRenderer {
             flush()
         case "span":
             if n.hasClass("b-spoiler_inline") {
-                appendText("[спойлер]", st)
+                spoilerCount += 1
+                var s = st
+                s.link = URL(string: "shikispoiler://\(spoilerCount)")
+                s.noImages = true
+                walkChildren(n, s)
             } else {
                 walkChildren(n, st, imageHref: imageHref)
             }
@@ -405,15 +419,7 @@ struct CommentBlocksView: View {
                 case .video(let thumb, let link, let player, let hosting):
                     CommentVideo(thumb: thumb, link: link, player: player, hosting: hosting)
                 case .spoiler(let title, let inner):
-                    AnyView(
-                        DisclosureGroup {
-                            CommentBlocksView(blocks: inner).padding(.top, 6)
-                        } label: {
-                            Text(title).font(.subheadline.weight(.semibold))
-                        }
-                        .padding(10)
-                        .background(Color(UIColor.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    )
+                    SpoilerBlockView(title: title, blocks: inner)
                 }
             }
         }
@@ -505,6 +511,38 @@ struct CommentRichText: View {
     @Environment(\.commentFont) private var commentFont
     @Environment(\.commentLineSpacing) private var lineSpacing
     @ObservedObject private var store = SmileyStore.shared
+    @State private var revealed: Set<String> = []
+
+    /// Скрытый спойлер показывается плашкой «спойлер», после нажатия — настоящим текстом.
+    private func applySpoilers(_ a: AttributedString) -> AttributedString {
+        var out = AttributedString()
+        var lastHidden: String?
+        for run in a.runs {
+            let piece = AttributedString(a[run.range])
+            if let link = run.link, link.scheme == "shikispoiler" {
+                let id = link.absoluteString
+                var p: AttributedString
+                if revealed.contains(id) {
+                    lastHidden = nil
+                    p = piece
+                    p.link = nil
+                } else {
+                    // один спойлер может состоять из нескольких кусков — плашка нужна одна
+                    if lastHidden == id { continue }
+                    lastHidden = id
+                    p = AttributedString(" спойлер ")
+                    p.link = link
+                    p.inlinePresentationIntent = .stronglyEmphasized
+                }
+                p.backgroundColor = Color(UIColor.tertiarySystemFill)
+                out.append(p)
+            } else {
+                lastHidden = nil
+                out.append(piece)
+            }
+        }
+        return out
+    }
 
     private var smileyURLs: [URL] {
         runs.compactMap { if case .smiley(let u) = $0 { return u } else { return nil } }
@@ -515,7 +553,7 @@ struct CommentRichText: View {
         for run in runs {
             switch run {
             case .text(let a):
-                result = result + Text(a)
+                result = result + Text(applySpoilers(a))
             case .smiley(let url):
                 if let img = store.images[url] {
                     result = result + Text(Image(uiImage: img))
@@ -525,6 +563,13 @@ struct CommentRichText: View {
         return result
             .font(commentFont)
             .lineSpacing(lineSpacing)
+            .environment(\.openURL, OpenURLAction { url in
+                if url.scheme == "shikispoiler" {
+                    withAnimation { _ = revealed.insert(url.absoluteString) }
+                    return .handled
+                }
+                return .systemAction
+            })
             .task(id: smileyURLs) {
                 for u in smileyURLs { await store.load(u) }
             }
@@ -648,4 +693,43 @@ struct EmbeddedVideoView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: WKWebView, context: Context) {}
+}
+
+
+/// Раскрывающийся блок, как на сайте: плашка с названием и кнопкой «показать» / «скрыть».
+struct SpoilerBlockView: View {
+    let title: String
+    let blocks: [CBlock]
+    @State private var open = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) { open.toggle() }
+            } label: {
+                HStack(spacing: 10) {
+                    Text(title)
+                        .font(.subheadline.weight(.semibold))
+                        .multilineTextAlignment(.leading)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Text(open ? "скрыть" : "показать")
+                        .font(.footnote.weight(.semibold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(open ? Color(UIColor.label) : Color(UIColor.quaternarySystemFill), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        .foregroundStyle(open ? Color(UIColor.systemBackground) : Color.secondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if open {
+                CommentBlocksView(blocks: blocks)
+                    .transition(.opacity)
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(UIColor.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
 }
