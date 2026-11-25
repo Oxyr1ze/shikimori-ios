@@ -73,14 +73,15 @@ enum SiteLabels {
         return map[k] ?? k
     }
 
+    /// Возрастная маркировка по российской системе (соответствие приблизительное).
     static func ageRating(_ k: String) -> String? {
         switch k {
-        case "g": return "G — без ограничений"
-        case "pg": return "PG — детям"
-        case "pg_13": return "PG-13 — 13+"
-        case "r": return "R — 17+"
-        case "r_plus": return "R+ — 18+"
-        case "rx": return "Rx — хентай"
+        case "g": return "0+ (G)"
+        case "pg": return "6+ (PG)"
+        case "pg_13": return "12+ (PG-13)"
+        case "r": return "16+ (R-17)"
+        case "r_plus": return "18+ (R+)"
+        case "rx": return "18+ (Rx, хентай)"
         default: return nil
         }
     }

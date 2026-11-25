@@ -136,8 +136,10 @@ enum CatalogOptions {
     ]
 
     static let ratings: [(String, String)] = [
-        ("g", "G — без ограничений"), ("pg", "PG — детям"), ("pg_13", "PG-13 — 13+"),
-        ("r", "R — 17+"), ("r_plus", "R+ — 18+"), ("rx", "Rx — хентай")
+        ("g", SiteLabels.ageRating("g") ?? "G"), ("pg", SiteLabels.ageRating("pg") ?? "PG"),
+        ("pg_13", SiteLabels.ageRating("pg_13") ?? "PG-13"),
+        ("r", SiteLabels.ageRating("r") ?? "R"), ("r_plus", SiteLabels.ageRating("r_plus") ?? "R+"),
+        ("rx", SiteLabels.ageRating("rx") ?? "Rx")
     ]
 
     static let origins: [(String, String)] = [

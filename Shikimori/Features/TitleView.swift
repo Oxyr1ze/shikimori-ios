@@ -10,6 +10,7 @@ final class TitleModel: ObservableObject {
     @Published var similar: [Media] = []
     @Published var extras: MediaExtras?
     @Published var related: [RelatedItem] = []
+    @Published var videos: [VideoItem] = []
 
     func load(_ ref: MediaRef) async {
         self.ref = ref
@@ -22,6 +23,7 @@ final class TitleModel: ObservableObject {
             similar = DiskCache.load([Media].self, key: "similar-\(base)") ?? []
             extras = DiskCache.load(MediaExtras.self, key: "extras-\(base)")
             related = DiskCache.load([RelatedItem].self, key: "related-\(base)") ?? []
+            videos = DiskCache.load([VideoItem].self, key: "videos-\(base)") ?? []
         }
         do {
             let fresh = try await AuthManager.shared.detail(ref)
@@ -34,6 +36,8 @@ final class TitleModel: ObservableObject {
             if let e = await AuthManager.shared.extras(ref) { extras = e; DiskCache.save(e, key: "extras-\(base)") }
             let rel = await AuthManager.shared.related(ref)
             if !rel.isEmpty { related = rel; DiskCache.save(rel, key: "related-\(base)") }
+            let vids = await AuthManager.shared.videos(ref)
+            if !vids.isEmpty { videos = vids; DiskCache.save(vids, key: "videos-\(base)") }
         } catch is CancellationError {
         } catch {
             self.error = detail == nil ? error.localizedDescription : offlineMessage
@@ -93,7 +97,7 @@ enum TitleTab: CaseIterable, Hashable {
         switch self {
         case .info: return "Инфо"
         case .people: return "Люди"
-        case .links: return "Связи"
+        case .links: return "Связанное"
         case .ratings: return "Оценки"
         }
     }
@@ -114,21 +118,52 @@ struct TitleView: View {
     @State private var descOpen = false
     @State private var allCharacters = false
     @State private var allStaff = false
+    @State private var allRelated = false
+    @State private var viewer: ViewerState?
+    @State private var playing: VideoItem?
+    @State private var scrollY: CGFloat = 0
 
     var body: some View {
-        ScrollView {
-            if let d = model.detail {
-                content(d)
-            } else if let message = model.error {
-                ErrorBanner(message: message) { Task { await model.load(ref) } }
-                    .padding(.top, 40)
-            } else {
-                ProgressView().frame(maxWidth: .infinity).padding(.top, 80)
+        ZStack(alignment: .top) {
+            if let d = model.detail { backdrop(d) }
+            ScrollView {
+                if let d = model.detail {
+                    content(d)
+                } else if let message = model.error {
+                    ErrorBanner(message: message) { Task { await model.load(ref) } }
+                        .padding(.top, 40)
+                } else {
+                    ProgressView().frame(maxWidth: .infinity).padding(.top, 80)
+                }
+            }
+            .onScrollGeometryChange(for: CGFloat.self) { geo in
+                geo.contentOffset.y + geo.contentInsets.top
+            } action: { _, new in
+                scrollY = max(0, new)
             }
         }
         .background(AppBackground())
         .navigationBarTitleDisplayMode(.inline)
+        .toolbarBackground(.hidden, for: .navigationBar)
         .task { await model.load(ref) }
+        .fullScreenCover(item: $viewer) { ImageViewer(images: $0.images, index: $0.index) }
+        .fullScreenCover(item: $playing) { v in
+            if let player = v.playerURL, let link = v.pageURL ?? v.playerURL {
+                VideoPlayerScreen(player: player, link: link)
+            }
+        }
+    }
+
+    /// Размытый постер: часть страницы, уходит вместе с прокруткой.
+    private func backdrop(_ d: MediaDetail) -> some View {
+        Color.clear
+            .frame(height: 480)
+            .overlay { RemoteImage(urls: d.posterCandidates).blur(radius: 50).opacity(0.5) }
+            .clipped()
+            .mask(LinearGradient(colors: [.black, .black.opacity(0.6), .clear], startPoint: .top, endPoint: .bottom))
+            .ignoresSafeArea(edges: .top)
+            .offset(y: -scrollY)
+            .allowsHitTesting(false)
     }
 
     // MARK: Каркас страницы
@@ -147,6 +182,10 @@ struct TitleView: View {
             case .links: linksTab
             case .ratings: ratingsTab(d)
             }
+            if tab != .ratings {
+                MediaRow(title: "Похожее", items: model.similar, kind: ref.kind)
+                    .padding(.horizontal, -20)
+            }
             if let message = model.error {
                 Text(message).font(.footnote).foregroundStyle(.red)
             }
@@ -154,15 +193,6 @@ struct TitleView: View {
         .padding(.horizontal, 20)
         .padding(.top, 8)
         .padding(.bottom, 100)
-        .background(alignment: .top) {
-            // размытый постер за шапкой
-            Color.clear
-                .frame(height: 420)
-                .overlay { RemoteImage(urls: d.posterCandidates).blur(radius: 50).opacity(0.5) }
-                .clipped()
-                .mask(LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom))
-                .ignoresSafeArea(edges: .top)
-        }
     }
 
     // MARK: Шапка
@@ -193,9 +223,14 @@ struct TitleView: View {
     private func header(_ d: MediaDetail) -> some View {
         let votes = (model.extras?.scoresStats ?? []).reduce(0) { $0 + $1.count }
         return HStack(alignment: .bottom, spacing: 16) {
-            PosterView(urls: d.posterCandidates, radius: 20)
-                .frame(width: 122)
-                .shadow(color: .black.opacity(0.25), radius: 12, y: 6)
+            Button {
+                viewer = ViewerState(images: [d.posterCandidates], index: 0)
+            } label: {
+                PosterView(urls: d.posterCandidates, radius: 20)
+                    .frame(width: 122)
+                    .shadow(color: .black.opacity(0.25), radius: 12, y: 6)
+            }
+            .buttonStyle(.plain)
             VStack(alignment: .leading, spacing: 8) {
                 Text(d.title)
                     .font(.title2.weight(.heavy))
@@ -230,8 +265,8 @@ struct TitleView: View {
 
     @ViewBuilder
     private func genreStrip(_ d: MediaDetail) -> some View {
-        let fromExtras = (model.extras?.genres ?? []).map(\.display)
-        let names = fromExtras.isEmpty ? (d.genres ?? []).map(\.display) : fromExtras
+        let fromExtras = (model.extras?.genres ?? []).filter { $0.kind == "genre" }.map(\.display)
+        let names = model.extras == nil ? (d.genres ?? []).map(\.display) : fromExtras
         if !names.isEmpty {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 8) {
@@ -256,7 +291,9 @@ struct TitleView: View {
             HStack(spacing: 10) {
                 Menu {
                     ForEach(RateStatus.allCases) { st in
-                        Button(st.title) { Task { await model.setStatus(st) } }
+                        Button { Task { await model.setStatus(st) } } label: {
+                            Label(st.title, systemImage: st.icon)
+                        }
                     }
                     if d.userRate != nil {
                         Divider()
@@ -264,7 +301,7 @@ struct TitleView: View {
                     }
                 } label: {
                     HStack(spacing: 8) {
-                        Image(systemName: d.userRate == nil ? "plus" : "checkmark.circle.fill")
+                        Image(systemName: RateStatus.icon(for: d.userRate?.status))
                         Text(d.userRate == nil ? "Добавить в список" : RateStatus.title(for: d.userRate?.status))
                             .fontWeight(.bold)
                         Image(systemName: "chevron.up.chevron.down").font(.caption2)
@@ -295,15 +332,11 @@ struct TitleView: View {
                     HStack {
                         Text(ref.kind == .anime ? "Эпизоды" : "Главы").font(.subheadline.weight(.semibold))
                         Spacer()
-                        Button { Task { await model.changeEpisodes(by: -1) } } label: { Image(systemName: "minus") }
-                            .buttonStyle(.glass)
-                            .accessibilityLabel("Меньше")
+                        stepButton("minus", label: "Меньше") { await model.changeEpisodes(by: -1) }
                         Text(total > 0 ? "\(done) / \(total)" : "\(done)")
                             .font(.headline.weight(.heavy))
                             .frame(minWidth: 70)
-                        Button { Task { await model.changeEpisodes(by: 1) } } label: { Image(systemName: "plus") }
-                            .buttonStyle(.glassProminent)
-                            .accessibilityLabel("Больше")
+                        stepButton("plus", label: "Больше") { await model.changeEpisodes(by: 1) }
                     }
                     if total > 0 {
                         ProgressView(value: Double(min(done, total)), total: Double(total))
@@ -331,6 +364,17 @@ struct TitleView: View {
             }
         }
         .disabled(model.busy)
+    }
+
+    private func stepButton(_ icon: String, label: String, _ action: @escaping () async -> Void) -> some View {
+        Button { Task { await action() } } label: {
+            Image(systemName: icon)
+                .font(.system(size: 17, weight: .bold))
+                .frame(width: 38, height: 38)
+        }
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+        .accessibilityLabel(label)
     }
 
     // MARK: Описание
@@ -393,6 +437,27 @@ struct TitleView: View {
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
     }
 
+    @ViewBuilder
+    private func chipsCard(_ label: String, _ names: [String]) -> some View {
+        if !names.isEmpty {
+            VStack(alignment: .leading, spacing: 8) {
+                Text(label).font(.caption).foregroundStyle(.secondary)
+                FlowLayout(spacing: 6) {
+                    ForEach(Array(names.enumerated()), id: \.offset) { _, n in
+                        Text(n)
+                            .font(.footnote.weight(.semibold))
+                            .padding(.horizontal, 11)
+                            .padding(.vertical, 6)
+                            .background(Color(UIColor.tertiarySystemFill), in: Capsule())
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+    }
+
     private func datesText(_ d: MediaDetail) -> String? {
         let from = (d.airedOn ?? "").isEmpty ? nil : ruDate(d.airedOn ?? "")
         let to = (d.releasedOn ?? "").isEmpty ? nil : ruDate(d.releasedOn ?? "")
@@ -434,13 +499,14 @@ struct TitleView: View {
             if let c = d.chapters, c > 0 { r.append(("Главы", "\(c)")) }
         }
         r.append(("Статус", releaseStatusTitle(d.status)))
+        if let a = d.airedOn, !a.isEmpty { r.append(("Дата начала", ruDate(a))) }
+        if let a = d.releasedOn, !a.isEmpty { r.append(("Дата завершения", ruDate(a))) }
         return r
     }
 
     private func wideFacts(_ d: MediaDetail) -> [(String, String)] {
         let e = model.extras
         var r: [(String, String)] = []
-        if let dates = datesText(d) { r.append(("Даты", dates)) }
         if ref.kind == .anime, let next = e?.nextEpisodeAt, d.status == "ongoing", let t = nextEpisodeText(next) {
             r.append(("Следующий эпизод", t))
         }
@@ -481,6 +547,8 @@ struct TitleView: View {
                 ForEach(Array(short.enumerated()), id: \.offset) { _, f in tile(f.0, f.1) }
             }
             ForEach(Array(wide.enumerated()), id: \.offset) { _, f in tile(f.0, f.1) }
+            chipsCard("Темы", (model.extras?.genres ?? []).filter { $0.kind == "theme" }.map(\.display))
+            chipsCard("Аудитория", (model.extras?.genres ?? []).filter { $0.kind == "demographic" }.map(\.display))
 
             let alts = alternativeList(d)
             if !alts.isEmpty {
@@ -498,6 +566,7 @@ struct TitleView: View {
             }
 
             screenshotsRow(d)
+            videosRow(d)
             externalLinks
         }
     }
@@ -530,15 +599,65 @@ struct TitleView: View {
     private func screenshotsRow(_ d: MediaDetail) -> some View {
         let shots = (d.screenshots ?? []).filter { $0.previewURL != nil }
         if !shots.isEmpty {
+            let all = shots.map { [$0.originalURL, $0.previewURL].compactMap { $0 } }
             VStack(alignment: .leading, spacing: 10) {
-                sectionTitle("Кадры")
+                HStack {
+                    sectionTitle("Кадры")
+                    Spacer()
+                    NavigationLink {
+                        ScreenshotsPage(title: d.title, shots: shots)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text("Все (\(shots.count))")
+                            Image(systemName: "chevron.right").font(.caption.weight(.bold))
+                        }
+                        .font(.subheadline.weight(.semibold))
+                    }
+                }
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
-                        ForEach(Array(shots.enumerated()), id: \.offset) { _, shot in
-                            Color(UIColor.tertiarySystemFill)
-                                .frame(width: 250, height: 141)
-                                .overlay { RemoteImage(urls: [shot.previewURL, shot.originalURL].compactMap { $0 }) }
-                                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    LazyHStack(spacing: 8) {
+                        ForEach(Array(shots.prefix(20).enumerated()), id: \.offset) { i, shot in
+                            Button {
+                                viewer = ViewerState(images: all, index: i)
+                            } label: {
+                                Color(UIColor.tertiarySystemFill)
+                                    .frame(width: 170, height: 96)
+                                    .overlay { RemoteImage(urls: [shot.previewURL, shot.originalURL].compactMap { $0 }) }
+                                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                }
+                .padding(.horizontal, -20)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func videosRow(_ d: MediaDetail) -> some View {
+        let list = model.videos.filter { $0.playerURL != nil }
+        if !list.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack {
+                    sectionTitle("Видео")
+                    Spacer()
+                    NavigationLink {
+                        VideosPage(title: d.title, videos: list)
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text("Все (\(list.count))")
+                            Image(systemName: "chevron.right").font(.caption.weight(.bold))
+                        }
+                        .font(.subheadline.weight(.semibold))
+                    }
+                }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    LazyHStack(alignment: .top, spacing: 10) {
+                        ForEach(list.prefix(15)) { v in
+                            Button { playing = v } label: { VideoCard(video: v, width: 190) }
+                                .buttonStyle(.plain)
                         }
                     }
                     .padding(.horizontal, 20)
@@ -630,13 +749,13 @@ struct TitleView: View {
     @ViewBuilder
     private var linksTab: some View {
         VStack(alignment: .leading, spacing: 18) {
-            if model.related.isEmpty && model.similar.isEmpty {
-                Text("Связанных и похожих тайтлов пока нет").font(.footnote).foregroundStyle(.secondary)
+            if model.related.isEmpty {
+                Text("Связанных тайтлов пока нет").font(.footnote).foregroundStyle(.secondary)
             }
             if !model.related.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
                     sectionTitle("Связанное")
-                    ForEach(model.related.prefix(30)) { item in
+                    ForEach(allRelated ? Array(model.related) : Array(model.related.prefix(5))) { item in
                         NavigationLink {
                             TitleView(ref: item.ref)
                         } label: {
@@ -659,8 +778,13 @@ struct TitleView: View {
                     }
                 }
             }
-            MediaRow(title: "Похожее", items: model.similar, kind: ref.kind)
-                .padding(.horizontal, -20)
+            if model.related.count > 5 {
+                Button(allRelated ? "Свернуть" : "Показать все (\(model.related.count))") {
+                    withAnimation { allRelated.toggle() }
+                }
+                .font(.subheadline.weight(.semibold))
+                .frame(maxWidth: .infinity)
+            }
         }
     }
 

@@ -233,6 +233,20 @@ enum RateStatus: String, CaseIterable, Identifiable {
         guard let raw, let s = RateStatus(rawValue: raw) else { return "Не в списке" }
         return s.title
     }
+    var icon: String {
+        switch self {
+        case .watching: return "play.circle.fill"
+        case .planned: return "bookmark.circle.fill"
+        case .completed: return "checkmark.circle.fill"
+        case .onHold: return "pause.circle.fill"
+        case .dropped: return "xmark.circle.fill"
+        case .rewatching: return "arrow.triangle.2.circlepath.circle.fill"
+        }
+    }
+    static func icon(for raw: String?) -> String {
+        guard let raw, let s = RateStatus(rawValue: raw) else { return "plus.circle.fill" }
+        return s.icon
+    }
 }
 
 func releaseStatusTitle(_ raw: String?) -> String {
@@ -247,14 +261,14 @@ func releaseStatusTitle(_ raw: String?) -> String {
 
 func kindTitle(_ k: String) -> String {
     switch k {
-    case "tv": return "ТВ-сериал"
+    case "tv": return "TV Сериал"
     case "movie": return "Фильм"
     case "ova": return "OVA"
     case "ona": return "ONA"
-    case "special": return "Спешл"
-    case "tv_special": return "ТВ-спешл"
+    case "special": return "Спецвыпуск"
+    case "tv_special": return "TV Спецвыпуск"
     case "music": return "Клип"
-    case "pv": return "Промо"
+    case "pv": return "Проморолик"
     case "cm": return "Реклама"
     case "manga": return "Манга"
     case "manhwa": return "Манхва"
@@ -495,4 +509,43 @@ struct UserProfileInfo: Codable {
     var lastOnlineAt: String?
     var website: String?
     var sex: String?
+}
+
+
+/// Видео тайтла (трейлеры, опенинги, эндинги).
+struct VideoItem: Codable, Identifiable, Hashable {
+    var id: Int
+    var url: String?
+    var imageUrl: String?
+    var playerUrl: String?
+    var name: String?
+    var kind: String?
+    var hosting: String?
+
+    var thumb: URL? { absoluteURL(imageUrl) }
+    var pageURL: URL? { url.flatMap { absoluteURL($0.replacingOccurrences(of: "http://", with: "https://")) } }
+    var playerURL: URL? {
+        guard let p = playerUrl else { return pageURL }
+        return absoluteURL(p.replacingOccurrences(of: "http://", with: "https://")) ?? pageURL
+    }
+    var kindTitle: String {
+        switch kind {
+        case "pv": return "Проморолик"
+        case "character_trailer": return "Трейлер персонажа"
+        case "cm": return "Реклама"
+        case "op": return "Опенинг"
+        case "ed": return "Эндинг"
+        case "op_ed_clip": return "Клип OP/ED"
+        case "clip": return "Клип"
+        case "episode_preview": return "Анонс серии"
+        default: return "Видео"
+        }
+    }
+}
+
+extension AuthManager {
+    func videos(_ ref: MediaRef) async -> [VideoItem] {
+        guard ref.kind == .anime else { return [] }
+        return (try? await get("/api/animes/\(ref.id)/videos")) ?? []
+    }
 }
