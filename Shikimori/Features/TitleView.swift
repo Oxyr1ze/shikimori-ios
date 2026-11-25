@@ -8,6 +8,8 @@ final class TitleModel: ObservableObject {
     @Published var busy = false
     @Published var roles: [Role] = []
     @Published var similar: [Media] = []
+    @Published var extras: MediaExtras?
+    @Published var related: [RelatedItem] = []
 
     func load(_ ref: MediaRef) async {
         self.ref = ref
@@ -18,6 +20,8 @@ final class TitleModel: ObservableObject {
             detail = DiskCache.load(MediaDetail.self, key: detailKey)
             roles = DiskCache.load([Role].self, key: "roles-\(base)") ?? []
             similar = DiskCache.load([Media].self, key: "similar-\(base)") ?? []
+            extras = DiskCache.load(MediaExtras.self, key: "extras-\(base)")
+            related = DiskCache.load([RelatedItem].self, key: "related-\(base)") ?? []
         }
         do {
             let fresh = try await AuthManager.shared.detail(ref)
@@ -27,6 +31,9 @@ final class TitleModel: ObservableObject {
             if !r.isEmpty { roles = r; DiskCache.save(r, key: "roles-\(base)") }
             let s = await AuthManager.shared.similar(ref)
             if !s.isEmpty { similar = s; DiskCache.save(s, key: "similar-\(base)") }
+            if let e = await AuthManager.shared.extras(ref) { extras = e; DiskCache.save(e, key: "extras-\(base)") }
+            let rel = await AuthManager.shared.related(ref)
+            if !rel.isEmpty { related = rel; DiskCache.save(rel, key: "related-\(base)") }
         } catch is CancellationError {
         } catch {
             self.error = detail == nil ? error.localizedDescription : offlineMessage
@@ -117,20 +124,6 @@ struct TitleView: View {
                 Spacer(minLength: 0)
             }
 
-            if let genres = d.genres, !genres.isEmpty {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(Array(genres.enumerated()), id: \.offset) { _, g in
-                            Text(g.display)
-                                .font(.footnote.weight(.semibold))
-                                .padding(.horizontal, 13)
-                                .padding(.vertical, 7)
-                                .glassEffect(.regular, in: .capsule)
-                        }
-                    }
-                }
-            }
-
             stats(d)
 
             listCard(d)
@@ -140,6 +133,9 @@ struct TitleView: View {
             }
 
             infoCard(d)
+            ratingCard(d)
+            linksRow
+            relatedSection
             if let topic = d.topicId {
                 NavigationLink {
                     CommentsView(topicID: topic, title: d.title)
@@ -170,22 +166,227 @@ struct TitleView: View {
         .padding(.bottom, 100)
     }
 
+    private func chips(_ items: [String]) -> some View {
+        FlowLayout(spacing: 6) {
+            ForEach(Array(items.enumerated()), id: \.offset) { _, t in
+                Text(t)
+                    .font(.footnote.weight(.semibold))
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 6)
+                    .glassEffect(.regular, in: .capsule)
+            }
+        }
+    }
+
+    private func infoRow(_ label: String, @ViewBuilder _ value: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(label).font(.footnote).foregroundStyle(.secondary)
+            value()
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func textRow(_ label: String, _ value: String) -> some View {
+        HStack(alignment: .top) {
+            Text(label).foregroundStyle(.secondary)
+            Spacer(minLength: 16)
+            Text(value).multilineTextAlignment(.trailing)
+        }
+        .font(.subheadline)
+    }
+
+    private func datesText(_ d: MediaDetail) -> String? {
+        let from = (d.airedOn ?? "").isEmpty ? nil : ruDate(d.airedOn ?? "")
+        let to = (d.releasedOn ?? "").isEmpty ? nil : ruDate(d.releasedOn ?? "")
+        switch (from, to) {
+        case let (f?, t?): return f == t ? f : "с \(f) по \(t)"
+        case let (f?, nil): return "с \(f)"
+        case let (nil, t?): return "по \(t)"
+        default: return nil
+        }
+    }
+
     @ViewBuilder
     private func infoCard(_ d: MediaDetail) -> some View {
-        let lines = d.infoLines
-        if !lines.isEmpty {
-            VStack(spacing: 10) {
-                ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
-                    HStack(alignment: .top) {
-                        Text(line.0).foregroundStyle(.secondary)
-                        Spacer(minLength: 16)
-                        Text(line.1).multilineTextAlignment(.trailing)
+        let e = model.extras
+        let isAnime = ref.kind == .anime
+        let genreList = (e?.genres ?? []).filter { $0.kind == "genre" }.map(\.display)
+        let themeList = (e?.genres ?? []).filter { $0.kind == "theme" }.map(\.display)
+        let audience = (e?.genres ?? []).filter { $0.kind == "demographic" }.map(\.display)
+        let fallbackGenres = (d.genres ?? []).map(\.display)
+        VStack(alignment: .leading, spacing: 12) {
+            if let k = d.kind, !k.isEmpty { textRow("Тип", kindTitle(k)) }
+            if isAnime {
+                let total = d.episodes ?? 0
+                let aired = d.episodesAired ?? 0
+                if total > 0 || aired > 0 {
+                    textRow("Эпизоды", total > 0 && d.status == "ongoing" && aired > 0
+                            ? "\(aired) из \(total)" : (total > 0 ? "\(total)" : "\(aired)"))
+                }
+                if let dur = d.duration, dur > 0 { textRow("Длительность эпизода", "\(dur) мин.") }
+            } else {
+                if let v = d.volumes, v > 0 { textRow("Тома", "\(v)") }
+                if let c = d.chapters, c > 0 { textRow("Главы", "\(c)") }
+            }
+            textRow("Статус", releaseStatusTitle(d.status))
+            if let dates = datesText(d) { textRow("Даты", dates) }
+            if isAnime, let next = e?.nextEpisodeAt, d.status == "ongoing", let text = nextEpisodeText(next) {
+                textRow("Следующий эпизод", text)
+            }
+            if !genreList.isEmpty {
+                infoRow("Жанры") { chips(genreList) }
+            } else if e == nil && !fallbackGenres.isEmpty {
+                infoRow("Жанры") { chips(fallbackGenres) }
+            }
+            if !themeList.isEmpty { infoRow("Темы") { chips(themeList) } }
+            if !audience.isEmpty { infoRow("Аудитория") { chips(audience) } }
+            if isAnime {
+                if let r = e?.rating ?? d.rating, let label = SiteLabels.ageRating(r) { textRow("Возрастной рейтинг", label) }
+                if let o = e?.origin { textRow("Первоисточник", SiteLabels.origin(o)) }
+                let studioNames = (e?.studios ?? []).compactMap(\.name)
+                let names = studioNames.isEmpty ? (d.studios ?? []).compactMap(\.name) : studioNames
+                if !names.isEmpty { textRow("Студия", names.joined(separator: ", ")) }
+            } else if let p = e?.publishers?.compactMap(\.name), !p.isEmpty {
+                textRow("Издатель", p.joined(separator: ", "))
+            }
+            if let l = e?.licensors, !l.isEmpty { textRow("Лицензировано", l.joined(separator: ", ")) }
+            if isAnime {
+                if let f = e?.fansubbers, !f.isEmpty { textRow("Субтитры", f.joined(separator: ", ")) }
+                if let f = e?.fandubbers, !f.isEmpty { textRow("Озвучка", f.joined(separator: ", ")) }
+            }
+            alternativeNames(d)
+        }
+        .padding(16)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+    }
+
+    private func alternativeList(_ d: MediaDetail) -> [String] {
+        let e = model.extras
+        var names: [String] = [d.name]
+        names += [e?.english].compactMap { $0 }
+        names += (d.english ?? []).compactMap { $0 }
+        names += [e?.japanese].compactMap { $0 }
+        names += (d.japanese ?? []).compactMap { $0 }
+        names += e?.synonyms ?? []
+        var unique: [String] = []
+        for n in names where !n.isEmpty && !unique.contains(n) { unique.append(n) }
+        return unique
+    }
+
+    @ViewBuilder
+    private func alternativeNames(_ d: MediaDetail) -> some View {
+        let unique = alternativeList(d)
+        if !unique.isEmpty {
+            DisclosureGroup("Альтернативные названия") {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(unique, id: \.self) { Text($0).font(.subheadline).textSelection(.enabled) }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 6)
+            }
+            .font(.subheadline)
+            .tint(.secondary)
+        }
+    }
+
+    private func nextEpisodeText(_ iso: String) -> String? {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let g = ISO8601DateFormatter()
+        guard let date = f.date(from: iso) ?? g.date(from: iso) else { return nil }
+        let out = DateFormatter()
+        out.locale = Locale(identifier: "ru_RU")
+        out.dateFormat = "d MMMM yyyy, HH:mm"
+        return out.string(from: date)
+    }
+
+    @ViewBuilder
+    private func ratingCard(_ d: MediaDetail) -> some View {
+        let scores = (model.extras?.scoresStats ?? []).sorted { $0.score > $1.score }
+        let statuses = model.extras?.statusesStats ?? []
+        if !scores.isEmpty || !statuses.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Оценки и списки").font(.title3.weight(.bold))
+                if !scores.isEmpty {
+                    let maxCount = max(scores.map(\.count).max() ?? 1, 1)
+                    let total = scores.reduce(0) { $0 + $1.count }
+                    ForEach(scores, id: \.score) { s in
+                        HStack(spacing: 10) {
+                            Text("\(s.score)").font(.footnote.weight(.bold)).frame(width: 20, alignment: .trailing)
+                            GeometryReader { geo in
+                                Capsule().fill(Theme.accent)
+                                    .frame(width: max(4, geo.size.width * CGFloat(s.count) / CGFloat(maxCount)))
+                            }
+                            .frame(height: 8)
+                            Text("\(s.count)").font(.caption).foregroundStyle(.secondary)
+                                .frame(width: 56, alignment: .trailing)
+                        }
                     }
-                    .font(.subheadline)
+                    Text("Всего оценок: \(total)").font(.footnote).foregroundStyle(.secondary)
+                }
+                if !statuses.isEmpty {
+                    Divider()
+                    ForEach(statuses, id: \.status) { s in
+                        textRow(SiteLabels.listStatus(s.status, kind: ref.kind), "\(s.count)")
+                    }
                 }
             }
             .padding(16)
             .background(Theme.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        }
+    }
+
+    @ViewBuilder
+    private var linksRow: some View {
+        let links = (model.extras?.externalLinks ?? []).compactMap { l -> (String, URL)? in
+            guard let k = l.kind, let u = l.url, let url = URL(string: u) else { return nil }
+            return (SiteLabels.linkTitle(k), url)
+        }
+        if !links.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Ссылки").font(.title3.weight(.bold))
+                FlowLayout(spacing: 8) {
+                    ForEach(Array(links.enumerated()), id: \.offset) { _, link in
+                        Link(destination: link.1) {
+                            Label(link.0, systemImage: "arrow.up.right")
+                                .font(.footnote.weight(.semibold))
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 7)
+                                .glassEffect(.regular, in: .capsule)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var relatedSection: some View {
+        if !model.related.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Связанное").font(.title3.weight(.bold))
+                ForEach(model.related.prefix(30)) { item in
+                    NavigationLink {
+                        TitleView(ref: item.ref)
+                    } label: {
+                        HStack(spacing: 12) {
+                            PosterView(urls: item.media.thumbCandidates, radius: 10)
+                                .frame(width: 44, height: 64)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(item.relation).font(.caption).foregroundStyle(Theme.accent)
+                                Text(item.media.title).font(.subheadline.weight(.semibold))
+                                    .multilineTextAlignment(.leading).lineLimit(2)
+                                if let k = item.media.kind { Text(kindTitle(k)).font(.caption).foregroundStyle(.secondary) }
+                            }
+                            Spacer(minLength: 0)
+                            Image(systemName: "chevron.right").font(.footnote).foregroundStyle(.secondary)
+                        }
+                        .padding(10)
+                        .background(Theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
         }
     }
 

@@ -1,36 +1,8 @@
 import SwiftUI
 
-enum CatalogOrder: String, CaseIterable, Identifiable {
-    case popularity, ranked, aired_on, name
-    var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .popularity: return "Популярность"
-        case .ranked: return "Рейтинг"
-        case .aired_on: return "Новизна"
-        case .name: return "Название"
-        }
-    }
-}
-
-enum CatalogStatus: String, CaseIterable, Identifiable {
-    case all = "", ongoing, released, anons
-    var id: String { rawValue }
-    var title: String {
-        switch self {
-        case .all: return "Любой статус"
-        case .ongoing: return "Выходит"
-        case .released: return "Вышло"
-        case .anons: return "Анонс"
-        }
-    }
-}
-
 @MainActor
 final class CatalogModel: ObservableObject {
     @Published var kind: MediaKind = .anime
-    @Published var order: CatalogOrder = .popularity
-    @Published var status: CatalogStatus = .all
     @Published var filters = CatalogFilters()
     @Published var items: [Media] = []
     @Published var loading = false
@@ -56,7 +28,7 @@ final class CatalogModel: ObservableObject {
         let gen = generation
         do {
             let result = try await AuthManager.shared.media(
-                kind: kind, order: order.rawValue, status: status.rawValue,
+                kind: kind, order: filters.order,
                 filters: filters.queryItems(kind: kind), page: page, limit: 24)
             guard gen == generation else { loading = false; return }
             let known = Set(items.map(\.id))
@@ -85,28 +57,15 @@ struct CatalogView: View {
                     }
                     .pickerStyle(.segmented)
 
-                    HStack(spacing: 10) {
-                        Menu {
-                            Picker("Сортировка", selection: $model.order) {
-                                ForEach(CatalogOrder.allCases) { Text($0.title).tag($0) }
-                            }
-                        } label: {
-                            Label(model.order.title, systemImage: "arrow.up.arrow.down")
-                        }
-                        Menu {
-                            Picker("Статус", selection: $model.status) {
-                                ForEach(CatalogStatus.allCases) { Text($0.title).tag($0) }
-                            }
-                        } label: {
-                            Label(model.status.title, systemImage: "line.3.horizontal.decrease")
-                        }
+                    HStack {
                         Button { showFilters = true } label: {
-                            Label(model.filters.count > 0 ? "Фильтры (\(model.filters.count))" : "Фильтры",
+                            Label(model.filters.count > 0 ? "Фильтры и сортировка (\(model.filters.count))" : "Фильтры и сортировка",
                                   systemImage: "slider.horizontal.3")
+                                .lineLimit(1)
                         }
-                        Spacer()
+                        .buttonStyle(.glass)
+                        Spacer(minLength: 0)
                     }
-                    .buttonStyle(.glass)
 
                     LazyVGrid(columns: columns, spacing: 14) {
                         ForEach(model.items) { item in
@@ -149,8 +108,6 @@ struct CatalogView: View {
                 model.filters = CatalogFilters()
                 Task { await model.reload() }
             }
-            .onChange(of: model.order) { _, _ in Task { await model.reload() } }
-            .onChange(of: model.status) { _, _ in Task { await model.reload() } }
         }
     }
 }
