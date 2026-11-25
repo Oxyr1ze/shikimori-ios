@@ -22,7 +22,7 @@ enum Theme {
 
     static let background = Color(UIColor.systemBackground)
     static let card = Color(UIColor.secondarySystemBackground)
-    static let accent = Color(UIColor.systemRed)
+    static let accent = dynamic(light: 0xE8112D, dark: 0xFF2D44)
 }
 
 extension Color {

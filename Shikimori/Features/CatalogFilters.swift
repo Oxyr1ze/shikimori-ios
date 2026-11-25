@@ -241,6 +241,45 @@ private struct MenuRow<Content: View>: View {
     }
 }
 
+/// Выбор периода: слева «с», справа «по», годы листаются барабанами.
+private struct YearRangePage: View {
+    @Binding var from: Int
+    @Binding var to: Int
+
+    private var years: [Int] {
+        let current = Calendar.current.component(.year, from: Date()) + 1
+        return Array((1960...current).reversed())
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            HStack {
+                Text("С").font(.headline).frame(maxWidth: .infinity)
+                Text("По").font(.headline).frame(maxWidth: .infinity)
+            }
+            HStack(spacing: 0) {
+                wheel($from)
+                wheel($to)
+            }
+            Button("Сбросить годы") { from = 0; to = 0 }
+                .disabled(from == 0 && to == 0)
+            Spacer()
+        }
+        .padding(.top, 20)
+        .navigationTitle("Годы")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private func wheel(_ value: Binding<Int>) -> some View {
+        Picker("", selection: value) {
+            Text(verbatim: "Не важно").tag(0)
+            ForEach(years, id: \.self) { Text(verbatim: String($0)).tag($0) }
+        }
+        .pickerStyle(.wheel)
+        .frame(maxWidth: .infinity)
+    }
+}
+
 /// Окно «Фильтры и сортировка». Изменения применяются при закрытии окна.
 struct CatalogFiltersView: View {
     let kind: MediaKind
@@ -253,6 +292,13 @@ struct CatalogFiltersView: View {
     private var years: [Int] {
         let current = Calendar.current.component(.year, from: Date()) + 1
         return Array((1960...current).reversed())
+    }
+
+    private var yearsText: String {
+        let f = draft.yearFrom, t = draft.yearTo
+        if f == 0 && t == 0 { return "" }
+        if f > 0 && t > 0 { return f == t ? String(f) : "\(f) – \(t)" }
+        return f > 0 ? "с \(f)" : "по \(t)"
     }
 
     private func summary(_ set: Set<String>, _ options: [(String, String)]) -> String {
@@ -324,16 +370,15 @@ struct CatalogFiltersView: View {
 
                 multi("Сезон", CatalogOptions.seasons(), \.seasons)
 
-                MenuRow(title: "Год с", summary: draft.yearFrom > 0 ? String(draft.yearFrom) : "", multi: false) {
-                    Picker("Год с", selection: $draft.yearFrom) {
-                        Text(verbatim: "Не важно").tag(0)
-                        ForEach(years, id: \.self) { Text(verbatim: String($0)).tag($0) }
-                    }
-                }
-                MenuRow(title: "Год по", summary: draft.yearTo > 0 ? String(draft.yearTo) : "", multi: false) {
-                    Picker("Год по", selection: $draft.yearTo) {
-                        Text(verbatim: "Не важно").tag(0)
-                        ForEach(years, id: \.self) { Text(verbatim: String($0)).tag($0) }
+                NavigationLink {
+                    YearRangePage(from: $draft.yearFrom, to: $draft.yearTo)
+                } label: {
+                    HStack {
+                        Text(verbatim: "Годы")
+                        Spacer()
+                        let text = yearsText
+                        Text(verbatim: text.isEmpty ? "Не важно" : text)
+                            .foregroundStyle(text.isEmpty ? Color.secondary : Theme.accent)
                     }
                 }
 

@@ -65,7 +65,13 @@ struct HomeView: View {
             .background(AppBackground())
             .navigationTitle("Shikimori")
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItemGroup(placement: .topBarTrailing) {
+                    NavigationLink {
+                        ForumView()
+                    } label: {
+                        Image(systemName: "newspaper")
+                    }
+                    .accessibilityLabel("Новости и форум")
                     NavigationLink {
                         CalendarView()
                     } label: {
