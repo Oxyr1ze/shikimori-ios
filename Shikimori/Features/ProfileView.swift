@@ -129,6 +129,7 @@ struct ProfileView: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(alignment: .top, spacing: 14) {
                         ForEach(model.friends, id: \.id) { f in
+                            NavigationLink { UserView(user: f) } label: {
                             VStack(spacing: 6) {
                                 Color(UIColor.tertiarySystemFill)
                                     .frame(width: 60, height: 60)
@@ -139,6 +140,8 @@ struct ProfileView: View {
                                     .lineLimit(1)
                                     .frame(width: 72)
                             }
+                            }
+                            .buttonStyle(.plain)
                         }
                     }
                 }

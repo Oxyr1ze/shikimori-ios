@@ -488,6 +488,11 @@ struct UserStats: Codable {
     var scores: [String: [StatEntry]]?
 }
 
-struct UserProfileInfo: Decodable {
+struct UserProfileInfo: Codable {
     var stats: UserStats?
+    var aboutHtml: String?
+    var fullYears: Int?
+    var lastOnlineAt: String?
+    var website: String?
+    var sex: String?
 }

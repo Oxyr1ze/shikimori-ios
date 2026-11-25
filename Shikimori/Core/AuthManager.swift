@@ -313,13 +313,17 @@ final class AuthManager: ObservableObject {
     }
 
     func userStats() async -> UserStats? {
-        guard let user else { return nil }
-        let info: UserProfileInfo? = try? await get("/api/users/\(user.id)")
-        return info?.stats
+        await userProfile()?.stats
     }
 
-    func favourites() async -> Favourites? {
-        guard let user, let r: FavouritesResponse = try? await get("/api/users/\(user.id)/favourites") else { return nil }
+    /// Профиль пользователя (свой или чужой, если указан id).
+    func userProfile(id: Int? = nil) async -> UserProfileInfo? {
+        guard let uid = id ?? user?.id else { return nil }
+        return try? await get("/api/users/\(uid)")
+    }
+
+    func favourites(id: Int? = nil) async -> Favourites? {
+        guard let uid = id ?? user?.id, let r: FavouritesResponse = try? await get("/api/users/\(uid)/favourites") else { return nil }
         var fav = Favourites()
         fav.animes = (r.animes ?? []).map(\.media)
         fav.mangas = (r.mangas ?? []).map(\.media)
@@ -334,14 +338,14 @@ final class AuthManager: ObservableObject {
         return fav
     }
 
-    func friends() async -> [ShikiUser] {
-        guard let user else { return [] }
-        return (try? await get("/api/users/\(user.id)/friends", query: [URLQueryItem(name: "limit", value: "100")])) ?? []
+    func friends(id: Int? = nil) async -> [ShikiUser] {
+        guard let uid = id ?? user?.id else { return [] }
+        return (try? await get("/api/users/\(uid)/friends", query: [URLQueryItem(name: "limit", value: "100")])) ?? []
     }
 
-    func history() async -> [HistoryItem] {
-        guard let user else { return [] }
-        return (try? await get("/api/users/\(user.id)/history", query: [URLQueryItem(name: "limit", value: "20")])) ?? []
+    func history(id: Int? = nil) async -> [HistoryItem] {
+        guard let uid = id ?? user?.id else { return [] }
+        return (try? await get("/api/users/\(uid)/history", query: [URLQueryItem(name: "limit", value: "20")])) ?? []
     }
 
     func comments(topicID: Int, page: Int, limit: Int = 30) async throws -> [Comment] {

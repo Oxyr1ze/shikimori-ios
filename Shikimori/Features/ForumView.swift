@@ -209,12 +209,22 @@ struct TopicView: View {
     @State private var blocks: [CBlock] = []
     @State private var error: String?
 
+    @ViewBuilder
+    private func authorLink<L: View>(_ user: ShikiUser?, @ViewBuilder label: () -> L) -> some View {
+        if let user {
+            NavigationLink { UserView(user: user) } label: { label() }.buttonStyle(.plain)
+        } else {
+            label()
+        }
+    }
+
     var body: some View {
         let t = full ?? topic
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 Text(t.title).font(.title.weight(.heavy))
 
+                authorLink(t.user) {
                 HStack(spacing: 10) {
                     Color(UIColor.tertiarySystemFill)
                         .frame(width: 36, height: 36)
@@ -225,6 +235,7 @@ struct TopicView: View {
                         Text([t.dateText, t.forum?.name].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
                             .font(.caption).foregroundStyle(.secondary)
                     }
+                }
                 }
 
                 let chips = t.chips

@@ -120,17 +120,28 @@ struct CommentsView: View {
         }
     }
 
+    @ViewBuilder
+    private func userLink<L: View>(_ user: ShikiUser?, @ViewBuilder label: () -> L) -> some View {
+        if let user {
+            NavigationLink { UserView(user: user) } label: { label() }.buttonStyle(.plain)
+        } else {
+            label()
+        }
+    }
+
     private func commentRow(_ c: Comment) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            Color(UIColor.tertiarySystemFill)
-                .frame(width: 40, height: 40)
-                .overlay {
-                    if let url = c.user?.avatarURL { RemoteImage(urls: [url]) }
-                }
-                .clipShape(Circle())
+            userLink(c.user) {
+                Color(UIColor.tertiarySystemFill)
+                    .frame(width: 40, height: 40)
+                    .overlay {
+                        if let url = c.user?.avatarURL { RemoteImage(urls: [url]) }
+                    }
+                    .clipShape(Circle())
+            }
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
-                    Text(c.user?.nickname ?? "—").font(.subheadline.weight(.bold))
+                    userLink(c.user) { Text(c.user?.nickname ?? "—").font(.subheadline.weight(.bold)) }
                     Text(c.dateText).font(.caption).foregroundStyle(.secondary)
                     if c.isOfftopic == true {
                         Text("оффтоп").font(.caption).foregroundStyle(.secondary)
