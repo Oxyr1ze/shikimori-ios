@@ -29,18 +29,24 @@ final class UserModel: ObservableObject {
             DiskCache.save(i, key: key("info"))
         }
         loaded = true
-        if let f = await api.favourites(id: user.id) {
-            favourites = f
-            DiskCache.save(f, key: key("fav"))
-        }
-        let fr = await api.friends(id: user.id)
-        if !fr.isEmpty { friends = fr; DiskCache.save(fr, key: key("friends")) }
-        let h = await api.history(id: user.id)
-        if !h.isEmpty { history = h; DiskCache.save(h, key: key("history")) }
-        if let c = try? await api.comments(topicID: user.id, type: "User", page: 1, limit: 10) {
+        // Всё остальное грузится одновременно, комментарии появляются сразу
+        let uid = user.id
+        async let favTask = api.favourites(id: uid)
+        async let friendsTask = api.friends(id: uid)
+        async let historyTask = api.history(id: uid)
+        async let commentsTask = try? await api.comments(topicID: uid, type: "User", page: 1, limit: 10)
+        if let c = await commentsTask {
             setComments(Array(c.prefix(10)))
             DiskCache.save(comments, key: key("comments"))
         }
+        if let f = await favTask {
+            favourites = f
+            DiskCache.save(f, key: key("fav"))
+        }
+        let fr = await friendsTask
+        if !fr.isEmpty { friends = fr; DiskCache.save(fr, key: key("friends")) }
+        let h = await historyTask
+        if !h.isEmpty { history = h; DiskCache.save(h, key: key("history")) }
     }
 
     private func setComments(_ list: [Comment]) {
@@ -113,11 +119,9 @@ struct UserContent: View {
             friendsRow
             historyList
 
-            // «О себе» внизу и свёрнуто: у некоторых людей там очень много текста и картинок
+            // «О себе» внизу: короткий текст виден сразу, длинный сворачивается
             if !model.aboutBlocks.isEmpty {
-                SpoilerBlockView(title: "О себе", blocks: model.aboutBlocks)
-                    .environment(\.commentFont, .body)
-                    .environment(\.commentLineSpacing, 4)
+                AboutCard(blocks: model.aboutBlocks)
             }
 
             commentsSection
@@ -255,5 +259,54 @@ struct UserView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.load() }
         .refreshable { await model.load() }
+    }
+}
+
+
+/// Блок «О себе»: короткий показывается целиком, длинный обрезается с кнопкой «Показать полностью».
+struct AboutCard: View {
+    let blocks: [CBlock]
+    @State private var open = false
+
+    private var isLong: Bool {
+        var chars = 0
+        var media = 0
+        for b in blocks {
+            switch b.kind {
+            case .text(let runs):
+                for r in runs { if case .text(let a) = r { chars += a.characters.count } }
+            case .quote(_, let inner):
+                chars += inner.count * 200
+            default:
+                media += 1
+            }
+        }
+        return chars > 450 || media > 1 || blocks.count > 6
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("О себе").font(.title3.weight(.bold))
+            let content = CommentBlocksView(blocks: blocks)
+                .environment(\.commentFont, .body)
+                .environment(\.commentLineSpacing, 4)
+            if isLong && !open {
+                content
+                    .frame(maxWidth: .infinity, maxHeight: 190, alignment: .topLeading)
+                    .clipped()
+                    .mask(LinearGradient(colors: [.black, .black, .clear], startPoint: .top, endPoint: .bottom))
+            } else {
+                content
+            }
+            if isLong {
+                Button(open ? "Свернуть" : "Показать полностью") {
+                    withAnimation(.easeInOut(duration: 0.2)) { open.toggle() }
+                }
+                .font(.subheadline.weight(.semibold))
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 }

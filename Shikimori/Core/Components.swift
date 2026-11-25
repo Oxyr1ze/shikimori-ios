@@ -195,3 +195,50 @@ struct FlowLayout: Layout {
         }
     }
 }
+
+
+/// Цвет статуса в списке (одинаковый в профиле и на странице тайтла).
+func listStatusColor(_ status: String) -> Color {
+    switch status {
+    case "watching": return .green
+    case "planned": return .blue
+    case "completed": return .purple
+    case "on_hold": return .orange
+    case "dropped": return .red
+    default: return .gray
+    }
+}
+
+/// «1 234» → «1,2 тыс.»
+func shortCount(_ n: Int) -> String {
+    if n >= 1_000_000 { return String(format: "%.1f млн", Double(n) / 1_000_000).replacingOccurrences(of: ".", with: ",") }
+    if n >= 10_000 { return "\(n / 1000) тыс." }
+    if n >= 1000 { return String(format: "%.1f тыс.", Double(n) / 1000).replacingOccurrences(of: ".", with: ",") }
+    return "\(n)"
+}
+
+/// Цветная полоса из частей. Ширины считаются с учётом промежутков, поэтому полоса не вылезает за края.
+struct SegmentedBar: View {
+    let segments: [(color: Color, count: Int)]
+    var height: CGFloat = 10
+
+    var body: some View {
+        GeometryReader { geo in
+            let items = segments.filter { $0.count > 0 }
+            let total = max(1, items.reduce(0) { $0 + $1.count })
+            let spacing: CGFloat = 2
+            let avail = max(0, geo.size.width - spacing * CGFloat(max(0, items.count - 1)))
+            let raw = items.map { max(3, avail * CGFloat($0.count) / CGFloat(total)) }
+            let sum = max(1, raw.reduce(0, +))
+            let scale = sum > avail ? avail / sum : 1
+            HStack(spacing: spacing) {
+                ForEach(Array(items.enumerated()), id: \.offset) { i, item in
+                    item.color.frame(width: raw[i] * scale)
+                }
+            }
+            .frame(width: geo.size.width, alignment: .leading)
+            .clipShape(Capsule())
+        }
+        .frame(height: height)
+    }
+}

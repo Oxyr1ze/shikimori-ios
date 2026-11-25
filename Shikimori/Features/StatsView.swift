@@ -23,14 +23,7 @@ struct StatsView: View {
     }
 
     private func color(_ status: String) -> Color {
-        switch status {
-        case "watching": return .red
-        case "planned": return .blue
-        case "completed": return .green
-        case "on_hold": return .orange
-        case "dropped": return .gray
-        default: return .purple
-        }
+        listStatusColor(status)
     }
 
     private var statuses: [StatusStat] {
@@ -73,16 +66,7 @@ struct StatsView: View {
                             summary(averageScore.map { String(format: "%.2f", $0) } ?? "—", "средняя оценка")
                         }
 
-                        GeometryReader { geo in
-                            HStack(spacing: 2) {
-                                ForEach(statuses, id: \.name) { s in
-                                    color(s.name)
-                                        .frame(width: max(4, geo.size.width * CGFloat(s.size) / CGFloat(total)))
-                                }
-                            }
-                            .clipShape(Capsule())
-                        }
-                        .frame(height: 10)
+                        SegmentedBar(segments: statuses.map { (color: color($0.name), count: $0.size) })
 
                         VStack(spacing: 8) {
                             ForEach(statuses, id: \.name) { s in
