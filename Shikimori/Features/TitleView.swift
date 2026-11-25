@@ -11,6 +11,8 @@ final class TitleModel: ObservableObject {
     @Published var extras: MediaExtras?
     @Published var related: [RelatedItem] = []
     @Published var videos: [VideoItem] = []
+    @Published var screenshots: [Screenshot] = []
+    @Published var franchise: [FranchiseNode] = []
 
     func load(_ ref: MediaRef) async {
         self.ref = ref
@@ -24,6 +26,8 @@ final class TitleModel: ObservableObject {
             extras = DiskCache.load(MediaExtras.self, key: "extras-\(base)")
             related = DiskCache.load([RelatedItem].self, key: "related-\(base)") ?? []
             videos = DiskCache.load([VideoItem].self, key: "videos-\(base)") ?? []
+            screenshots = DiskCache.load([Screenshot].self, key: "shots-\(base)") ?? []
+            franchise = DiskCache.load([FranchiseNode].self, key: "franchise-\(base)") ?? []
         }
         do {
             let fresh = try await AuthManager.shared.detail(ref)
@@ -38,6 +42,10 @@ final class TitleModel: ObservableObject {
             if !rel.isEmpty { related = rel; DiskCache.save(rel, key: "related-\(base)") }
             let vids = await AuthManager.shared.videos(ref)
             if !vids.isEmpty { videos = vids; DiskCache.save(vids, key: "videos-\(base)") }
+            let shots = await AuthManager.shared.screenshots(ref)
+            if !shots.isEmpty { screenshots = shots; DiskCache.save(shots, key: "shots-\(base)") }
+            let fr = await AuthManager.shared.franchise(ref)
+            if !fr.isEmpty { franchise = fr; DiskCache.save(fr, key: "franchise-\(base)") }
         } catch is CancellationError {
         } catch {
             self.error = detail == nil ? error.localizedDescription : offlineMessage
@@ -119,6 +127,7 @@ struct TitleView: View {
     @State private var allCharacters = false
     @State private var allStaff = false
     @State private var allRelated = false
+    @State private var relatedMode = 0
     @State private var viewer: ViewerState?
     @State private var playing: VideoItem?
     @State private var scrollY: CGFloat = 0
@@ -335,7 +344,7 @@ struct TitleView: View {
                         stepButton("minus", label: "Меньше") { await model.changeEpisodes(by: -1) }
                         Text(total > 0 ? "\(done) / \(total)" : "\(done)")
                             .font(.headline.weight(.heavy))
-                            .frame(minWidth: 70)
+                            .frame(minWidth: 64)
                         stepButton("plus", label: "Больше") { await model.changeEpisodes(by: 1) }
                     }
                     if total > 0 {
@@ -369,11 +378,12 @@ struct TitleView: View {
     private func stepButton(_ icon: String, label: String, _ action: @escaping () async -> Void) -> some View {
         Button { Task { await action() } } label: {
             Image(systemName: icon)
-                .font(.system(size: 17, weight: .bold))
-                .frame(width: 38, height: 38)
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(.primary)
+                .frame(width: 32, height: 32)
         }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .circle)
         .accessibilityLabel(label)
     }
 
@@ -597,7 +607,7 @@ struct TitleView: View {
 
     @ViewBuilder
     private func screenshotsRow(_ d: MediaDetail) -> some View {
-        let shots = (d.screenshots ?? []).filter { $0.previewURL != nil }
+        let shots = (model.screenshots.isEmpty ? (d.screenshots ?? []) : model.screenshots).filter { $0.previewURL != nil }
         if !shots.isEmpty {
             let all = shots.map { [$0.originalURL, $0.previewURL].compactMap { $0 } }
             VStack(alignment: .leading, spacing: 10) {
@@ -746,44 +756,98 @@ struct TitleView: View {
 
     // MARK: Вкладка «Связи»
 
+    private var chronology: [FranchiseNode] {
+        model.franchise.sorted { ($0.date ?? 0, $0.id) < ($1.date ?? 0, $1.id) }
+    }
+
+    private func relatedRow(poster: [URL], badge: String?, title: String, subtitle: String?, current: Bool = false) -> some View {
+        HStack(spacing: 12) {
+            PosterView(urls: poster, radius: 10)
+                .frame(width: 46, height: 66)
+            VStack(alignment: .leading, spacing: 3) {
+                if let badge { Text(badge).font(.caption.weight(.semibold)).foregroundStyle(Theme.accent) }
+                Text(title).font(.subheadline.weight(.semibold))
+                    .multilineTextAlignment(.leading).lineLimit(2)
+                if let subtitle { Text(subtitle).font(.caption).foregroundStyle(.secondary) }
+            }
+            Spacer(minLength: 0)
+            if !current { Image(systemName: "chevron.right").font(.footnote).foregroundStyle(.secondary) }
+        }
+        .padding(10)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            if current {
+                RoundedRectangle(cornerRadius: 18, style: .continuous).stroke(Theme.accent, lineWidth: 1.5)
+            }
+        }
+    }
+
     @ViewBuilder
     private var linksTab: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            if model.related.isEmpty {
-                Text("Связанных тайтлов пока нет").font(.footnote).foregroundStyle(.secondary)
+        let hasChronology = model.franchise.count > 1
+        VStack(alignment: .leading, spacing: 14) {
+            if hasChronology {
+                Picker("Порядок", selection: $relatedMode) {
+                    Text("Напрямую").tag(0)
+                    Text("Хронология").tag(1)
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: relatedMode) { _, _ in allRelated = false }
             }
-            if !model.related.isEmpty {
+            if relatedMode == 1 && hasChronology {
+                let nodes = chronology
+                let shown = allRelated ? nodes : Array(nodes.prefix(8))
                 VStack(alignment: .leading, spacing: 10) {
-                    sectionTitle("Связанное")
-                    ForEach(allRelated ? Array(model.related) : Array(model.related.prefix(5))) { item in
-                        NavigationLink {
-                            TitleView(ref: item.ref)
-                        } label: {
-                            HStack(spacing: 12) {
-                                PosterView(urls: item.media.thumbCandidates, radius: 10)
-                                    .frame(width: 46, height: 66)
-                                VStack(alignment: .leading, spacing: 3) {
-                                    Text(item.relation).font(.caption.weight(.semibold)).foregroundStyle(Theme.accent)
-                                    Text(item.media.title).font(.subheadline.weight(.semibold))
-                                        .multilineTextAlignment(.leading).lineLimit(2)
-                                    if let k = item.media.kind { Text(kindTitle(k)).font(.caption).foregroundStyle(.secondary) }
-                                }
-                                Spacer(minLength: 0)
-                                Image(systemName: "chevron.right").font(.footnote).foregroundStyle(.secondary)
+                    sectionTitle("Хронология")
+                    ForEach(shown) { node in
+                        let current = node.id == ref.id
+                        let sub = [node.kind, node.year.map { String($0) }].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+                        if current {
+                            relatedRow(poster: [node.imageURL].compactMap { $0 }, badge: "Вы здесь",
+                                       title: node.name ?? "", subtitle: sub, current: true)
+                        } else {
+                            NavigationLink {
+                                TitleView(ref: MediaRef(id: node.id, kind: node.mediaKind))
+                            } label: {
+                                relatedRow(poster: [node.imageURL].compactMap { $0 }, badge: nil,
+                                           title: node.name ?? "", subtitle: sub)
                             }
-                            .padding(10)
-                            .background(Theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
+                    }
+                    if nodes.count > 8 {
+                        Button(allRelated ? "Свернуть" : "Показать все (\(nodes.count))") {
+                            withAnimation { allRelated.toggle() }
+                        }
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
                     }
                 }
-            }
-            if model.related.count > 5 {
-                Button(allRelated ? "Свернуть" : "Показать все (\(model.related.count))") {
-                    withAnimation { allRelated.toggle() }
+            } else {
+                if model.related.isEmpty {
+                    Text("Связанных тайтлов пока нет").font(.footnote).foregroundStyle(.secondary)
+                } else {
+                    VStack(alignment: .leading, spacing: 10) {
+                        sectionTitle("Связанное")
+                        ForEach(allRelated ? Array(model.related) : Array(model.related.prefix(5))) { item in
+                            NavigationLink {
+                                TitleView(ref: item.ref)
+                            } label: {
+                                relatedRow(poster: item.media.thumbCandidates, badge: item.relation,
+                                           title: item.media.title,
+                                           subtitle: item.media.kind.map { kindTitle($0) })
+                            }
+                            .buttonStyle(.plain)
+                        }
+                        if model.related.count > 5 {
+                            Button(allRelated ? "Свернуть" : "Показать все (\(model.related.count))") {
+                                withAnimation { allRelated.toggle() }
+                            }
+                            .font(.subheadline.weight(.semibold))
+                            .frame(maxWidth: .infinity)
+                        }
+                    }
                 }
-                .font(.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity)
             }
         }
     }

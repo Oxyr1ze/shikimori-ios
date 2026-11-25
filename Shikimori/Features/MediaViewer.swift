@@ -7,48 +7,117 @@ struct ViewerState: Identifiable {
     var index: Int
 }
 
-/// Одна картинка с увеличением щипком и двойным касанием.
+/// Маленькая круглая кнопка закрытия: одинаковая во всех просмотрщиках.
+struct ViewerCloseButton: View {
+    let action: () -> Void
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: "xmark")
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 34, height: 34)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: .circle)
+        .accessibilityLabel("Закрыть")
+    }
+}
+
+final class LayoutScrollView: UIScrollView {
+    var onLayout: (() -> Void)?
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        onLayout?()
+    }
+}
+
+/// Прокрутка и увеличение картинки как в «Фото»: щипок, перемещение в любую сторону, двойное касание.
+struct ZoomScrollView: UIViewRepresentable {
+    let image: UIImage
+
+    func makeCoordinator() -> Coordinator { Coordinator() }
+
+    func makeUIView(context: Context) -> UIScrollView {
+        let scroll = LayoutScrollView()
+        scroll.delegate = context.coordinator
+        scroll.minimumZoomScale = 1
+        scroll.maximumZoomScale = 6
+        scroll.showsHorizontalScrollIndicator = false
+        scroll.showsVerticalScrollIndicator = false
+        scroll.bouncesZoom = true
+        scroll.backgroundColor = .clear
+        scroll.contentInsetAdjustmentBehavior = .never
+
+        let iv = UIImageView(image: image)
+        iv.contentMode = .scaleAspectFit
+        iv.isUserInteractionEnabled = true
+        scroll.addSubview(iv)
+        context.coordinator.imageView = iv
+        context.coordinator.scroll = scroll
+        scroll.onLayout = { [weak coordinator = context.coordinator] in coordinator?.layoutImage() }
+
+        let tap = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.doubleTap(_:)))
+        tap.numberOfTapsRequired = 2
+        scroll.addGestureRecognizer(tap)
+        return scroll
+    }
+
+    func updateUIView(_ scroll: UIScrollView, context: Context) {
+        context.coordinator.imageView?.image = image
+        context.coordinator.layoutImage()
+    }
+
+    final class Coordinator: NSObject, UIScrollViewDelegate {
+        weak var imageView: UIImageView?
+        weak var scroll: UIScrollView?
+
+        func viewForZooming(in scrollView: UIScrollView) -> UIView? { imageView }
+
+        func scrollViewDidZoom(_ scrollView: UIScrollView) { center() }
+
+        func layoutImage() {
+            guard let scroll, let iv = imageView, scroll.bounds.width > 0 else { return }
+            if scroll.zoomScale == 1 {
+                iv.frame = scroll.bounds
+                scroll.contentSize = scroll.bounds.size
+            }
+            center()
+        }
+
+        private func center() {
+            guard let scroll, let iv = imageView else { return }
+            let bw = scroll.bounds.width, bh = scroll.bounds.height
+            var f = iv.frame
+            f.origin.x = f.width < bw ? (bw - f.width) / 2 : 0
+            f.origin.y = f.height < bh ? (bh - f.height) / 2 : 0
+            iv.frame = f
+        }
+
+        @objc func doubleTap(_ g: UITapGestureRecognizer) {
+            guard let scroll, let iv = imageView else { return }
+            if scroll.zoomScale > 1.01 {
+                scroll.setZoomScale(1, animated: true)
+            } else {
+                let point = g.location(in: iv)
+                let scale: CGFloat = 3
+                let w = scroll.bounds.width / scale
+                let h = scroll.bounds.height / scale
+                let rect = CGRect(x: point.x - w / 2, y: point.y - h / 2, width: w, height: h)
+                scroll.zoom(to: rect, animated: true)
+            }
+        }
+    }
+}
+
+/// Одна картинка в просмотрщике.
 struct ZoomableImage: View {
     let urls: [URL]
     @State private var image: UIImage?
-    @State private var scale: CGFloat = 1
-    @State private var base: CGFloat = 1
-    @State private var offset: CGSize = .zero
-    @State private var lastOffset: CGSize = .zero
 
     var body: some View {
         Group {
             if let image {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .scaleEffect(scale)
-                    .offset(offset)
-                    .gesture(
-                        MagnifyGesture()
-                            .onChanged { scale = max(1, base * $0.magnification) }
-                            .onEnded { _ in
-                                base = scale
-                                if scale <= 1 { offset = .zero; lastOffset = .zero }
-                            }
-                    )
-                    .gesture(
-                        DragGesture()
-                            .onChanged { v in
-                                offset = CGSize(width: lastOffset.width + v.translation.width,
-                                                height: lastOffset.height + v.translation.height)
-                            }
-                            .onEnded { _ in lastOffset = offset },
-                        including: scale > 1 ? .all : .subviews
-                    )
-                    .onTapGesture(count: 2) {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            scale = scale > 1 ? 1 : 2.5
-                            base = scale
-                            offset = .zero
-                            lastOffset = .zero
-                        }
-                    }
+                ZoomScrollView(image: image)
             } else {
                 ProgressView().tint(.white)
             }
@@ -80,19 +149,16 @@ struct ImageViewer: View {
             .ignoresSafeArea()
 
             HStack {
-                Button { dismiss() } label: {
-                    Image(systemName: "xmark").font(.headline).padding(12)
-                }
-                .buttonStyle(.glass)
-                Spacer()
                 if images.count > 1 {
                     Text("\(index + 1) / \(images.count)")
-                        .font(.subheadline.weight(.semibold))
+                        .font(.footnote.weight(.semibold))
                         .foregroundStyle(.white)
-                        .padding(.horizontal, 14)
-                        .padding(.vertical, 8)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 7)
                         .glassEffect(.regular, in: .capsule)
                 }
+                Spacer()
+                ViewerCloseButton { dismiss() }
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)

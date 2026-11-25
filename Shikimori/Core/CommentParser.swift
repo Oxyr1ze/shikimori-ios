@@ -447,23 +447,7 @@ struct CommentImage: View {
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .onTapGesture { open = true }
         .fullScreenCover(isPresented: $open) {
-            ZStack(alignment: .topTrailing) {
-                Color.black.ignoresSafeArea()
-                AsyncImage(url: url) { phase in
-                    if let image = phase.image {
-                        image.resizable().scaledToFit()
-                    } else {
-                        ProgressView()
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                Button { open = false } label: {
-                    Image(systemName: "xmark")
-                }
-                .buttonStyle(.glass)
-                .buttonBorderShape(.circle)
-                .padding(20)
-            }
+            ImageViewer(images: [[url]], index: 0)
         }
     }
 }

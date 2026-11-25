@@ -549,3 +549,46 @@ extension AuthManager {
         return (try? await get("/api/animes/\(ref.id)/videos")) ?? []
     }
 }
+
+
+/// Узел франшизы: тайтл, связанный цепочкой связей (из /franchise).
+struct FranchiseNode: Codable, Identifiable, Hashable {
+    var id: Int
+    var date: Int?
+    var name: String?
+    var imageUrl: String?
+    var url: String?
+    var year: Int?
+    var kind: String?
+
+    var imageURL: URL? {
+        guard let s = imageUrl, !s.isEmpty else { return nil }
+        if s.hasPrefix("//") { return URL(string: "https:" + s) }
+        if s.hasPrefix("/") { return URL(string: ShikiConfig.host + s) }
+        return URL(string: s)
+    }
+    var mediaKind: MediaKind {
+        let u = url ?? ""
+        if u.contains("/ranobe/") { return .ranobe }
+        if u.contains("/mangas/") { return .manga }
+        return .anime
+    }
+}
+
+struct FranchiseResponse: Codable {
+    var nodes: [FranchiseNode]?
+    var currentId: Int?
+}
+
+extension AuthManager {
+    /// Все кадры тайтла (в профиле тайтла API отдаёт только два).
+    func screenshots(_ ref: MediaRef) async -> [Screenshot] {
+        guard ref.kind == .anime else { return [] }
+        return (try? await get("/api/animes/\(ref.id)/screenshots")) ?? []
+    }
+
+    func franchise(_ ref: MediaRef) async -> [FranchiseNode] {
+        let r: FranchiseResponse? = try? await get("/api/\(ref.kind.path)/\(ref.id)/franchise")
+        return r?.nodes ?? []
+    }
+}
