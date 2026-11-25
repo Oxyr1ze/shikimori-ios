@@ -141,64 +141,79 @@ enum CatalogOptions {
         "picture_book", "mixed_media", "other"
     ].map { ($0, SiteLabels.origin($0)) }
 
-    /// Сезоны, годы и десятилетия, как в списке «Сезон и год» на сайте.
+    /// Сезоны (годы выбираются отдельным пунктом «Период»).
     static func seasons() -> [(String, String)] {
         let current = Calendar.current.component(.year, from: Date())
         var list: [(String, String)] = []
         let names = [("winter", "зима"), ("spring", "весна"), ("summer", "лето"), ("fall", "осень")]
-        for y in stride(from: current + 1, through: current - 2, by: -1) {
+        for y in stride(from: current + 1, through: current - 5, by: -1) {
             for (key, title) in names { list.append(("\(key)_\(y)", "\(title) \(y)")) }
         }
-        for y in stride(from: current + 1, through: 1990, by: -1) { list.append((String(y), String(y))) }
-        for d in [201, 200, 199, 198, 197] {
-            list.append(("\(d)x", String(format: "%02d-е", (d % 100) * 10)))
-        }
-        list.append(("ancient", "До 1980"))
         return list
     }
 }
 
 // MARK: Элементы интерфейса
 
-private struct FilterGroup<Content: View>: View {
+/// Строка «название — выбранное значение» с выпадающим меню iOS.
+private struct MenuRow<Content: View>: View {
     let title: String
     let summary: String
+    var multi = true
     @ViewBuilder var content: () -> Content
-    @State private var open = false
 
     var body: some View {
-        DisclosureGroup(isExpanded: $open) {
-            content()
-        } label: {
-            HStack {
-                Text(title)
-                Spacer()
-                if !summary.isEmpty {
-                    Text(summary)
-                        .font(.subheadline)
-                        .foregroundStyle(Theme.accent)
-                        .lineLimit(1)
-                }
+        HStack {
+            Text(title)
+            Spacer()
+            if multi {
+                Menu { content() } label: { label }
+                    .menuActionDismissBehavior(.disabled)
+            } else {
+                Menu { content() } label: { label }
             }
         }
     }
+
+    private var label: some View {
+        HStack(spacing: 4) {
+            Text(summary.isEmpty ? "Не важно" : summary)
+                .lineLimit(1)
+            Image(systemName: "chevron.up.chevron.down").font(.footnote)
+        }
+        .foregroundStyle(summary.isEmpty ? Color.secondary : Theme.accent)
+    }
 }
 
-private struct CheckRow: View {
-    let label: String
-    let selected: Bool
-    let action: () -> Void
+/// Отдельная страница с поиском для длинных списков (студии, издатели).
+private struct NamedPickerPage: View {
+    let title: String
+    let items: [ExtraNamed]
+    @Binding var selection: Set<Int>
+    @State private var search = ""
 
     var body: some View {
-        Button(action: action) {
-            HStack {
-                Text(label).foregroundStyle(.primary)
-                Spacer()
-                if selected { Image(systemName: "checkmark").foregroundStyle(Theme.accent) }
+        let query = search.trimmingCharacters(in: .whitespaces).lowercased()
+        let list = items.filter { query.isEmpty || ($0.name ?? "").lowercased().contains(query) }
+        List {
+            if items.isEmpty { Text("Загрузка…").foregroundStyle(.secondary) }
+            ForEach(list, id: \.id) { item in
+                if let id = item.intID {
+                    Button {
+                        if selection.contains(id) { selection.remove(id) } else { selection.insert(id) }
+                    } label: {
+                        HStack {
+                            Text(item.name ?? "").foregroundStyle(.primary)
+                            Spacer()
+                            if selection.contains(id) { Image(systemName: "checkmark").foregroundStyle(Theme.accent) }
+                        }
+                    }
+                }
             }
-            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .navigationTitle(title)
+        .navigationBarTitleDisplayMode(.inline)
+        .searchable(text: $search, prompt: "Поиск")
     }
 }
 
@@ -209,79 +224,61 @@ struct CatalogFiltersView: View {
     @State private var genres: [GQLGenre] = []
     @State private var studios: [ExtraNamed] = []
     @State private var publishers: [ExtraNamed] = []
-    @State private var studioSearch = ""
-    @State private var publisherSearch = ""
 
     private var years: [Int] {
         let current = Calendar.current.component(.year, from: Date()) + 1
         return Array((1960...current).reversed())
     }
 
-    private func toggle(_ set: inout Set<String>, _ value: String) {
-        if set.contains(value) { set.remove(value) } else { set.insert(value) }
-    }
-
-    private func toggleID(_ set: inout Set<Int>, _ value: Int) {
-        if set.contains(value) { set.remove(value) } else { set.insert(value) }
-    }
-
     private func summary(_ set: Set<String>, _ options: [(String, String)]) -> String {
         let mine = options.filter { set.contains($0.0) }
         if mine.isEmpty { return "" }
         if mine.count == 1 { return mine[0].1 }
-        return "\(mine.count)"
+        return "Выбрано: \(mine.count)"
     }
 
     private func multi(_ title: String, _ options: [(String, String)], _ keyPath: WritableKeyPath<CatalogFilters, Set<String>>) -> some View {
-        FilterGroup(title: title, summary: summary(filters[keyPath: keyPath], options)) {
+        MenuRow(title: title, summary: summary(filters[keyPath: keyPath], options)) {
             ForEach(options, id: \.0) { option in
-                CheckRow(label: option.1, selected: filters[keyPath: keyPath].contains(option.0)) {
-                    toggle(&filters[keyPath: keyPath], option.0)
-                }
+                Toggle(option.1, isOn: Binding(
+                    get: { filters[keyPath: keyPath].contains(option.0) },
+                    set: { on in
+                        if on { filters[keyPath: keyPath].insert(option.0) }
+                        else { filters[keyPath: keyPath].remove(option.0) }
+                    }))
             }
         }
     }
 
-    private func genreGroup(_ title: String, kindName: String) -> some View {
+    private func genreRow(_ title: String, kindName: String) -> some View {
         let list = genres.filter { $0.kind == kindName }.sorted { $0.display < $1.display }
-        let selected = list.filter { g in g.intID.map { filters.genreIDs.contains($0) } ?? false }.count
-        return FilterGroup(title: title, summary: selected > 0 ? "\(selected)" : "") {
+        let chosen = list.filter { g in g.intID.map { filters.genreIDs.contains($0) } ?? false }
+        let text = chosen.count == 1 ? chosen[0].display : (chosen.isEmpty ? "" : "Выбрано: \(chosen.count)")
+        return MenuRow(title: title, summary: text) {
             ForEach(list, id: \.id) { g in
                 if let id = g.intID {
-                    CheckRow(label: g.display, selected: filters.genreIDs.contains(id)) {
-                        toggleID(&filters.genreIDs, id)
-                    }
+                    Toggle(g.display, isOn: Binding(
+                        get: { filters.genreIDs.contains(id) },
+                        set: { on in
+                            if on { filters.genreIDs.insert(id) } else { filters.genreIDs.remove(id) }
+                        }))
                 }
             }
         }
     }
 
-    private func namedGroup(_ title: String, items: [ExtraNamed], selection: Binding<Set<Int>>,
-                            search: Binding<String>) -> some View {
-        let query = search.wrappedValue.trimmingCharacters(in: .whitespaces).lowercased()
+    private func namedRow(_ title: String, items: [ExtraNamed], selection: Binding<Set<Int>>) -> some View {
         let chosen = items.filter { $0.intID.map { selection.wrappedValue.contains($0) } ?? false }
-        let rest = items.filter { item in
-            guard let id = item.intID, !selection.wrappedValue.contains(id) else { return false }
-            return query.isEmpty || (item.name ?? "").lowercased().contains(query)
-        }
-        let shown = chosen + Array(rest.prefix(query.isEmpty ? 40 : 100))
-        return FilterGroup(title: title, summary: selection.wrappedValue.isEmpty ? "" : "\(selection.wrappedValue.count)") {
-            TextField("Поиск…", text: search)
-                .textInputAutocapitalization(.never)
-                .autocorrectionDisabled()
-            if items.isEmpty { Text("Загрузка…").foregroundStyle(.secondary) }
-            ForEach(shown, id: \.id) { item in
-                if let id = item.intID {
-                    CheckRow(label: item.name ?? "", selected: selection.wrappedValue.contains(id)) {
-                        var s = selection.wrappedValue
-                        if s.contains(id) { s.remove(id) } else { s.insert(id) }
-                        selection.wrappedValue = s
-                    }
-                }
-            }
-            if query.isEmpty && rest.count > 40 {
-                Text("Показаны не все. Начните вводить название.")
-                    .font(.footnote).foregroundStyle(.secondary)
+        let text = chosen.count == 1 ? (chosen[0].name ?? "") : (selection.wrappedValue.isEmpty ? "" : "Выбрано: \(selection.wrappedValue.count)")
+        return NavigationLink {
+            NamedPickerPage(title: title, items: items, selection: selection)
+        } label: {
+            HStack {
+                Text(title)
+                Spacer()
+                Text(text.isEmpty ? "Не важно" : text)
+                    .lineLimit(1)
+                    .foregroundStyle(text.isEmpty ? Color.secondary : Theme.accent)
             }
         }
     }
@@ -290,9 +287,9 @@ struct CatalogFiltersView: View {
         NavigationStack {
             Form {
                 let orders = CatalogOptions.orders(for: kind)
-                FilterGroup(title: "Сортировка", summary: orders.first { $0.0 == filters.order }?.1 ?? "") {
-                    ForEach(orders, id: \.0) { option in
-                        CheckRow(label: option.1, selected: filters.order == option.0) { filters.order = option.0 }
+                MenuRow(title: "Сортировка", summary: orders.first { $0.0 == filters.order }?.1 ?? "", multi: false) {
+                    Picker("Сортировка", selection: $filters.order) {
+                        ForEach(orders, id: \.0) { Text($0.1).tag($0.0) }
                     }
                 }
 
@@ -303,22 +300,23 @@ struct CatalogFiltersView: View {
                 if !kinds.isEmpty { multi("Тип", kinds, \.kinds) }
                 if kind == .anime { multi("Количество серий", CatalogOptions.episodeCounts, \.kinds) }
 
-                genreGroup("Жанры", kindName: "genre")
-                genreGroup("Темы", kindName: "theme")
+                genreRow("Жанры", kindName: "genre")
+                genreRow("Темы", kindName: "theme")
                 if genres.contains(where: { $0.kind == "demographic" }) {
-                    genreGroup("Аудитория", kindName: "demographic")
+                    genreRow("Аудитория", kindName: "demographic")
                 }
 
-                multi("Сезон и год", CatalogOptions.seasons(), \.seasons)
+                multi("Сезон", CatalogOptions.seasons(), \.seasons)
 
-                FilterGroup(title: "Период (годы)",
-                            summary: (filters.yearFrom > 0 || filters.yearTo > 0)
-                                ? "\(filters.yearFrom > 0 ? String(filters.yearFrom) : "…")–\(filters.yearTo > 0 ? String(filters.yearTo) : "…")"
-                                : "") {
+                MenuRow(title: "Год с",
+                        summary: filters.yearFrom > 0 ? String(filters.yearFrom) : "", multi: false) {
                     Picker("С", selection: $filters.yearFrom) {
                         Text("Не важно").tag(0)
                         ForEach(years, id: \.self) { Text(String($0)).tag($0) }
                     }
+                }
+                MenuRow(title: "Год по",
+                        summary: filters.yearTo > 0 ? String(filters.yearTo) : "", multi: false) {
                     Picker("По", selection: $filters.yearTo) {
                         Text("Не важно").tag(0)
                         ForEach(years, id: \.self) { Text(String($0)).tag($0) }
@@ -329,14 +327,17 @@ struct CatalogFiltersView: View {
                     multi("Длительность серии", CatalogOptions.durations, \.durations)
                     multi("Возрастной рейтинг", CatalogOptions.ratings, \.ratings)
                     multi("Первоисточник", CatalogOptions.origins, \.origins)
-                    namedGroup("Студия", items: studios, selection: $filters.studioIDs, search: $studioSearch)
+                    namedRow("Студия", items: studios, selection: $filters.studioIDs)
                 } else {
-                    namedGroup("Издатель", items: publishers, selection: $filters.publisherIDs, search: $publisherSearch)
+                    namedRow("Издатель", items: publishers, selection: $filters.publisherIDs)
                 }
 
-                Picker("Оценка не ниже", selection: $filters.minScore) {
-                    Text("Любая").tag(0)
-                    ForEach((1...9).reversed(), id: \.self) { Text("\($0)").tag($0) }
+                MenuRow(title: "Оценка не ниже",
+                        summary: filters.minScore > 0 ? "\(filters.minScore)" : "", multi: false) {
+                    Picker("Оценка", selection: $filters.minScore) {
+                        Text("Не важно").tag(0)
+                        ForEach((1...9).reversed(), id: \.self) { Text("\($0)").tag($0) }
+                    }
                 }
             }
             .navigationTitle("Фильтры")
