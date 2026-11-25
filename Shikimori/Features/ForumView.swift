@@ -29,8 +29,12 @@ struct Topic: Codable, Identifiable, Hashable {
     var topicTitle: String?
     var body: String?
     var htmlBody: String?
+    var htmlFooter: String?
     var createdAt: String?
     var commentsCount: Int?
+    var linkedType: String?
+    var event: String?
+    var episode: Int?
     var forum: ForumRef?
     var user: ShikiUser?
 
@@ -40,7 +44,23 @@ struct Topic: Codable, Identifiable, Hashable {
 
     /// Тема как «комментарий»: так её разбирает общий разборщик разметки.
     func makeBlocks() -> [CBlock] {
-        Comment(id: id, body: body, htmlBody: htmlBody, createdAt: createdAt, isOfftopic: nil, user: user).makeBlocks()
+        var all = Comment(id: id, body: body, htmlBody: htmlBody, createdAt: createdAt, isOfftopic: nil, user: user).makeBlocks()
+        // Картинки и видео темы лежат в отдельном поле (html_footer)
+        if let footer = htmlFooter, !footer.isEmpty { all += CommentRenderer.render(html: footer) }
+        return all
+    }
+
+    /// Плашки над текстом: раздел, о чём новость, событие. Теги и источник сайт в API не отдаёт.
+    var chips: [String] {
+        var list: [String] = []
+        let kinds = ["Anime": "Аниме", "Manga": "Манга", "Ranobe": "Ранобэ", "Character": "Персонаж",
+                     "Person": "Человек", "Club": "Клуб", "Critique": "Рецензия"]
+        if let t = linkedType, let k = kinds[t] { list.append(k) }
+        let events = ["anons": "Анонс", "ongoing": "Онгоинг", "released": "Релиз", "episode": "Эпизод"]
+        if let e = event, let name = events[e] {
+            list.append(e == "episode" && (episode ?? 0) > 0 ? "Эпизод \(episode ?? 0)" : name)
+        }
+        return list
     }
 }
 
@@ -192,14 +212,38 @@ struct TopicView: View {
     var body: some View {
         let t = full ?? topic
         ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
-                Text(t.title).font(.title2.weight(.heavy))
+            VStack(alignment: .leading, spacing: 18) {
+                Text(t.title).font(.title.weight(.heavy))
+
                 HStack(spacing: 10) {
-                    if let n = t.user?.nickname { Text(n).font(.subheadline.weight(.semibold)) }
-                    Text(t.dateText).font(.subheadline).foregroundStyle(.secondary)
-                    if let f = t.forum?.name { Text(f).font(.subheadline).foregroundStyle(.secondary) }
+                    Color(UIColor.tertiarySystemFill)
+                        .frame(width: 36, height: 36)
+                        .overlay { if let url = t.user?.avatarURL { RemoteImage(urls: [url]) } }
+                        .clipShape(Circle())
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(t.user?.nickname ?? "—").font(.subheadline.weight(.bold))
+                        Text([t.dateText, t.forum?.name].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "))
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
                 }
+
+                let chips = t.chips
+                if !chips.isEmpty {
+                    FlowLayout(spacing: 6) {
+                        ForEach(chips, id: \.self) { c in
+                            Text(c)
+                                .font(.footnote.weight(.semibold))
+                                .padding(.horizontal, 11)
+                                .padding(.vertical, 5)
+                                .overlay(Capsule().stroke(Color.secondary.opacity(0.5), lineWidth: 1))
+                        }
+                    }
+                }
+
                 CommentBlocksView(blocks: blocks)
+                    .environment(\.commentFont, .body)
+                    .environment(\.commentLineSpacing, 5)
+
                 NavigationLink {
                     CommentsView(topicID: t.id, title: t.title)
                 } label: {

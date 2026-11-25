@@ -11,6 +11,7 @@ enum CBlockKind {
     case quote(author: String?, blocks: [CBlock])
     case image(URL)
     case spoiler(title: String, blocks: [CBlock])
+    case video(thumb: URL?, link: URL, player: URL?, hosting: String)
 }
 
 struct CBlock: Identifiable {
@@ -316,13 +317,37 @@ struct CommentRenderer {
                 sub.flush()
                 flush()
                 blocks.append(CBlock(kind: .spoiler(title: title.isEmpty ? "спойлер" : title, blocks: sub.blocks)))
-            } else if n.hasClass("b-video") || n.hasClass("b-replies") {
+            } else if n.hasClass("b-replies") {
                 return
+            } else if n.hasClass("b-video") {
+                let linkNode = n.findFirst { $0.tag == "a" && $0.hasClass("video-link") }
+                    ?? n.findFirst { $0.tag == "a" }
+                guard let linkNode, let link = absolute(linkNode.attrs["href"]) else { return }
+                let thumb = absolute(linkNode.findFirst { $0.tag == "img" }?.attrs["src"])
+                let player = absolute(linkNode.attrs["data-href"])
+                let hosting = n.findFirst { $0.hasClass("marker") }?.plainText
+                    .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                flush()
+                blocks.append(CBlock(kind: .video(thumb: thumb, link: link, player: player, hosting: hosting)))
             } else {
                 flush()
                 walkChildren(n, st)
                 flush()
             }
+        case "h1", "h2", "h3", "h4", "h5":
+            flush()
+            var s = st; s.bold = true
+            walkChildren(n, s)
+            flush()
+        case "ul", "ol":
+            flush()
+            walkChildren(n, st)
+            flush()
+        case "li":
+            flush()
+            appendText("•  ", st)
+            walkChildren(n, st)
+            flush()
         case "span":
             if n.hasClass("b-spoiler_inline") {
                 appendText("[спойлер]", st)
@@ -377,6 +402,8 @@ struct CommentBlocksView: View {
                     )
                 case .image(let url):
                     CommentImage(url: url)
+                case .video(let thumb, let link, let player, let hosting):
+                    CommentVideo(thumb: thumb, link: link, player: player, hosting: hosting)
                 case .spoiler(let title, let inner):
                     AnyView(
                         DisclosureGroup {
@@ -460,8 +487,23 @@ final class SmileyStore: ObservableObject {
     }
 }
 
+private struct CommentFontKey: EnvironmentKey { static let defaultValue: Font = .subheadline }
+private struct CommentLineSpacingKey: EnvironmentKey { static let defaultValue: CGFloat = 0 }
+extension EnvironmentValues {
+    var commentFont: Font {
+        get { self[CommentFontKey.self] }
+        set { self[CommentFontKey.self] = newValue }
+    }
+    var commentLineSpacing: CGFloat {
+        get { self[CommentLineSpacingKey.self] }
+        set { self[CommentLineSpacingKey.self] = newValue }
+    }
+}
+
 struct CommentRichText: View {
     let runs: [CRun]
+    @Environment(\.commentFont) private var commentFont
+    @Environment(\.commentLineSpacing) private var lineSpacing
     @ObservedObject private var store = SmileyStore.shared
 
     private var smileyURLs: [URL] {
@@ -481,9 +523,129 @@ struct CommentRichText: View {
             }
         }
         return result
-            .font(.subheadline)
+            .font(commentFont)
+            .lineSpacing(lineSpacing)
             .task(id: smileyURLs) {
                 for u in smileyURLs { await store.load(u) }
             }
     }
+}
+
+
+/// Видео из комментария или темы: превью с кнопкой, по нажатию открывается плеер.
+struct CommentVideo: View {
+    let thumb: URL?
+    let link: URL
+    let player: URL?
+    let hosting: String
+    @State private var open = false
+
+    var body: some View {
+        Button { open = true } label: {
+            ZStack {
+                Color.black
+                if let thumb {
+                    AsyncImage(url: thumb) { phase in
+                        if let image = phase.image { image.resizable().scaledToFill() }
+                    }
+                }
+                Image(systemName: "play.fill")
+                    .font(.title)
+                    .foregroundStyle(.white)
+                    .padding(20)
+                    .background(.black.opacity(0.55), in: Circle())
+                VStack {
+                    Spacer()
+                    HStack {
+                        Spacer()
+                        Label(hosting.isEmpty ? "видео" : hosting, systemImage: "play.rectangle.fill")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(.black.opacity(0.65), in: Capsule())
+                    }
+                }
+                .padding(10)
+            }
+            .aspectRatio(16.0 / 9.0, contentMode: .fit)
+            .frame(maxWidth: .infinity)
+            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .fullScreenCover(isPresented: $open) {
+            VideoPlayerScreen(player: player ?? link, link: link)
+        }
+    }
+}
+
+struct VideoPlayerScreen: View {
+    let player: URL
+    let link: URL
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        ZStack(alignment: .top) {
+            Color.black.ignoresSafeArea()
+            EmbeddedVideoView(url: player)
+                .padding(.top, 56)
+            HStack {
+                Button { dismiss() } label: {
+                    Image(systemName: "xmark")
+                        .font(.headline)
+                        .padding(12)
+                }
+                .buttonStyle(.glass)
+                Spacer()
+                Link(destination: link) {
+                    Label("Открыть в браузере", systemImage: "safari")
+                        .font(.subheadline.weight(.semibold))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 10)
+                }
+                .buttonStyle(.glass)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+        }
+    }
+}
+
+import WebKit
+
+/// Встроенный плеер: страница видео открывается в веб-окне прямо в приложении.
+struct EmbeddedVideoView: UIViewRepresentable {
+    let url: URL
+
+    func makeUIView(context: Context) -> WKWebView {
+        let config = WKWebViewConfiguration()
+        config.allowsInlineMediaPlayback = true
+        config.mediaTypesRequiringUserActionForPlayback = []
+        let web = WKWebView(frame: .zero, configuration: config)
+        web.isOpaque = false
+        web.backgroundColor = .black
+        web.scrollView.backgroundColor = .black
+        web.scrollView.isScrollEnabled = false
+        let host = url.host ?? ""
+        if host.contains("youtube.com") || host.contains("youtube-nocookie.com") {
+            // Встроенный плеер YouTube требует, чтобы его открывали со страницы сайта
+            var comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
+            var items = comps?.queryItems ?? []
+            items.append(URLQueryItem(name: "playsinline", value: "1"))
+            items.append(URLQueryItem(name: "autoplay", value: "1"))
+            comps?.queryItems = items
+            let src = comps?.url?.absoluteString ?? url.absoluteString
+            let html = """
+            <html><head><meta name="viewport" content="width=device-width, initial-scale=1">
+            <style>html,body{margin:0;height:100%;background:#000}iframe{border:0;width:100%;height:100%}</style>
+            </head><body><iframe src="\(src)" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen></iframe></body></html>
+            """
+            web.loadHTMLString(html, baseURL: URL(string: ShikiConfig.host))
+        } else {
+            web.load(URLRequest(url: url))
+        }
+        return web
+    }
+
+    func updateUIView(_ uiView: WKWebView, context: Context) {}
 }
