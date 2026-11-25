@@ -31,6 +31,7 @@ final class CatalogModel: ObservableObject {
     @Published var kind: MediaKind = .anime
     @Published var order: CatalogOrder = .popularity
     @Published var status: CatalogStatus = .all
+    @Published var filters = CatalogFilters()
     @Published var items: [Media] = []
     @Published var loading = false
     @Published var error: String?
@@ -55,7 +56,8 @@ final class CatalogModel: ObservableObject {
         let gen = generation
         do {
             let result = try await AuthManager.shared.media(
-                kind: kind, order: order.rawValue, status: status.rawValue, page: page, limit: 24)
+                kind: kind, order: order.rawValue, status: status.rawValue,
+                filters: filters.queryItems(kind: kind), page: page, limit: 24)
             guard gen == generation else { loading = false; return }
             let known = Set(items.map(\.id))
             items += result.filter { !known.contains($0.id) }
@@ -71,6 +73,7 @@ final class CatalogModel: ObservableObject {
 
 struct CatalogView: View {
     @StateObject private var model = CatalogModel()
+    @State private var showFilters = false
     private let columns = [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)]
 
     var body: some View {
@@ -96,6 +99,10 @@ struct CatalogView: View {
                             }
                         } label: {
                             Label(model.status.title, systemImage: "line.3.horizontal.decrease")
+                        }
+                        Button { showFilters = true } label: {
+                            Label(model.filters.count > 0 ? "Фильтры (\(model.filters.count))" : "Фильтры",
+                                  systemImage: "slider.horizontal.3")
                         }
                         Spacer()
                     }
@@ -133,7 +140,15 @@ struct CatalogView: View {
             .navigationTitle("Каталог")
             .navigationDestination(for: MediaRef.self) { TitleView(ref: $0) }
             .task { if model.items.isEmpty { await model.reload() } }
-            .onChange(of: model.kind) { _, _ in Task { await model.reload() } }
+            .sheet(isPresented: $showFilters) {
+                CatalogFiltersView(kind: model.kind, filters: $model.filters)
+                    .presentationDetents([.large])
+            }
+            .onChange(of: model.filters) { _, _ in Task { await model.reload() } }
+            .onChange(of: model.kind) { _, _ in
+                model.filters = CatalogFilters()
+                Task { await model.reload() }
+            }
             .onChange(of: model.order) { _, _ in Task { await model.reload() } }
             .onChange(of: model.status) { _, _ in Task { await model.reload() } }
         }

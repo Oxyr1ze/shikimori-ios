@@ -236,7 +236,7 @@ final class AuthManager: ObservableObject {
     // MARK: Методы API
 
     func media(kind: MediaKind, order: String, status: String? = nil, search: String? = nil,
-               page: Int = 1, limit: Int = 24) async throws -> [Media] {
+               filters: [URLQueryItem] = [], page: Int = 1, limit: Int = 24) async throws -> [Media] {
         var q = [
             URLQueryItem(name: "limit", value: String(limit)),
             URLQueryItem(name: "page", value: String(page)),
@@ -244,10 +244,20 @@ final class AuthManager: ObservableObject {
         ]
         if let status, !status.isEmpty { q.append(URLQueryItem(name: "status", value: status)) }
         if let search, !search.isEmpty { q.append(URLQueryItem(name: "search", value: search)) }
+        q += filters
         var items: [Media] = try await get("/api/\(kind.path)", query: q)
         let posters = await fetchPosters(ids: items.map(\.id), kind: kind)
         for i in items.indices { items[i].posterURLs = posters[items[i].id] }
         return items
+    }
+
+    /// Все жанры сайта (аниме и манга). Сохраняются на телефоне, список меняется редко.
+    func genres() async -> [Genre] {
+        if let list: [Genre] = try? await get("/api/genres"), !list.isEmpty {
+            DiskCache.save(list, key: "genres")
+            return list
+        }
+        return DiskCache.load([Genre].self, key: "genres") ?? []
     }
 
     func detail(_ ref: MediaRef) async throws -> MediaDetail {

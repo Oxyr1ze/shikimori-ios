@@ -93,6 +93,7 @@ struct Genre: Codable, Hashable {
     var id: Int?
     var name: String?
     var russian: String?
+    var entryType: String?
     var display: String { (russian?.isEmpty == false ? russian : name) ?? "" }
 }
 
