@@ -234,6 +234,8 @@ struct CommentRenderer {
             appendText(t, st)
             return
         }
+        // подпись с размером картинки («1224x827») не нужна
+        if n.hasClass("marker") || n.hasClass("image-sizes") { return }
         if n.hasClass("b-mention") {
             var s = st
             s.bold = true

@@ -15,11 +15,23 @@ final class CommentsModel: ObservableObject {
 
     init(topicID: Int, type: String = "Topic") { self.topicID = topicID; self.type = type }
 
+    /// Обновление: старые комментарии остаются на экране, пока не придут новые
+    /// (иначе при «потянуть для обновления» список очищался и показывалось «пока нет»).
     func reload() async {
-        page = 1
-        canLoadMore = true
-        comments = []
-        await loadMore()
+        error = nil
+        do {
+            let items = try await AuthManager.shared.comments(topicID: topicID, type: type, page: 1, limit: pageSize)
+            let fresh = Array(items.prefix(pageSize))
+            var map: [Int: [CBlock]] = [:]
+            for c in fresh { map[c.id] = c.makeBlocks() }
+            blocks = map
+            comments = fresh
+            canLoadMore = items.count > pageSize
+            page = 2
+        } catch is CancellationError {
+        } catch {
+            self.error = comments.isEmpty ? error.localizedDescription : offlineMessage
+        }
     }
 
     func loadMore() async {
@@ -119,7 +131,15 @@ struct CommentsView: View {
             }
             .presentationDetents([.medium, .large])
         }
-        .task { if model.comments.isEmpty { await model.reload() } }
+        .toolbar(.hidden, for: .tabBar)
+        .simultaneousGesture(TapGesture().onEnded { focused = false })
+        .task {
+            if model.comments.isEmpty {
+                model.loading = true
+                await model.reload()
+                model.loading = false
+            }
+        }
         .refreshable { await model.reload() }
     }
 
