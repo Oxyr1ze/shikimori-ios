@@ -24,6 +24,13 @@ enum DiskCache {
         return try? JSONDecoder().decode(type, from: data)
     }
 
+    /// Сколько секунд назад сохранены данные (nil, если их нет).
+    static func age(key: String) -> TimeInterval? {
+        guard let attrs = try? FileManager.default.attributesOfItem(atPath: file(key).path),
+              let date = attrs[.modificationDate] as? Date else { return nil }
+        return Date().timeIntervalSince(date)
+    }
+
     /// Удаляет все сохранённые данные (при выходе из аккаунта).
     static func clear() {
         try? FileManager.default.removeItem(at: folder)

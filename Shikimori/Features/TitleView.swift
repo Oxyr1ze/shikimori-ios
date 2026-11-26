@@ -31,34 +31,70 @@ final class TitleModel: ObservableObject {
             franchise = DiskCache.load([FranchiseNode].self, key: "franchise-\(base)") ?? []
             nodePosters = DiskCache.load([Int: PosterURLs].self, key: "franchise-posters-\(base)") ?? [:]
         }
-        do {
-            let fresh = try await AuthManager.shared.detail(ref)
-            detail = fresh
-            DiskCache.save(fresh, key: detailKey)
-            let r = await AuthManager.shared.roles(ref)
-            if !r.isEmpty { roles = r; DiskCache.save(r, key: "roles-\(base)") }
-            let s = await AuthManager.shared.similar(ref)
-            if !s.isEmpty { similar = s; DiskCache.save(s, key: "similar-\(base)") }
-            if let e = await AuthManager.shared.extras(ref) { extras = e; DiskCache.save(e, key: "extras-\(base)") }
-            let rel = await AuthManager.shared.related(ref)
-            if !rel.isEmpty { related = rel; DiskCache.save(rel, key: "related-\(base)") }
-            let vids = await AuthManager.shared.videos(ref)
-            if !vids.isEmpty { videos = vids; DiskCache.save(vids, key: "videos-\(base)") }
-            let shots = await AuthManager.shared.screenshots(ref)
-            if !shots.isEmpty { screenshots = shots; DiskCache.save(shots, key: "shots-\(base)") }
-            let fr = await AuthManager.shared.franchise(ref)
-            if !fr.isEmpty {
-                franchise = fr
-                DiskCache.save(fr, key: "franchise-\(base)")
-                let posters = await AuthManager.shared.posters(kind: ref.kind, ids: fr.map(\.id))
-                if !posters.isEmpty {
-                    nodePosters = posters
-                    DiskCache.save(posters, key: "franchise-posters-\(base)")
+        // Все блоки грузятся одновременно и появляются по мере готовности.
+        // Сначала самые заметные, потом остальные. Свежие данные из кэша не перезапрашиваем.
+        let fresh: TimeInterval = 3600
+        func stale(_ key: String) -> Bool { DiskCache.age(key: key).map { $0 > fresh } ?? true }
+        let ref = ref
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { @MainActor in
+                do {
+                    let d = try await AuthManager.shared.detail(ref)
+                    self.detail = d
+                    DiskCache.save(d, key: detailKey)
+                } catch is CancellationError {
+                } catch {
+                    self.error = self.detail == nil ? error.localizedDescription : offlineMessage
                 }
             }
-        } catch is CancellationError {
-        } catch {
-            self.error = detail == nil ? error.localizedDescription : offlineMessage
+            if stale("extras-\(base)") || extras == nil {
+                group.addTask { @MainActor in
+                    if let e = await AuthManager.shared.extras(ref) { self.extras = e; DiskCache.save(e, key: "extras-\(base)") }
+                }
+            }
+            if stale("shots-\(base)") || screenshots.isEmpty {
+                group.addTask { @MainActor in
+                    let v = await AuthManager.shared.screenshots(ref)
+                    if !v.isEmpty { self.screenshots = v; DiskCache.save(v, key: "shots-\(base)") }
+                }
+            }
+            if stale("videos-\(base)") || videos.isEmpty {
+                group.addTask { @MainActor in
+                    let v = await AuthManager.shared.videos(ref)
+                    if !v.isEmpty { self.videos = v; DiskCache.save(v, key: "videos-\(base)") }
+                }
+            }
+            if stale("roles-\(base)") || roles.isEmpty {
+                group.addTask { @MainActor in
+                    let v = await AuthManager.shared.roles(ref)
+                    if !v.isEmpty { self.roles = v; DiskCache.save(v, key: "roles-\(base)") }
+                }
+            }
+            if stale("related-\(base)") || related.isEmpty {
+                group.addTask { @MainActor in
+                    let v = await AuthManager.shared.related(ref)
+                    if !v.isEmpty { self.related = v; DiskCache.save(v, key: "related-\(base)") }
+                }
+            }
+            if stale("franchise-\(base)") || franchise.isEmpty {
+                group.addTask { @MainActor in
+                    let fr = await AuthManager.shared.franchise(ref)
+                    guard !fr.isEmpty else { return }
+                    self.franchise = fr
+                    DiskCache.save(fr, key: "franchise-\(base)")
+                    let posters = await AuthManager.shared.posters(kind: ref.kind, ids: fr.map(\.id))
+                    if !posters.isEmpty {
+                        self.nodePosters = posters
+                        DiskCache.save(posters, key: "franchise-posters-\(base)")
+                    }
+                }
+            }
+            if stale("similar-\(base)") || similar.isEmpty {
+                group.addTask { @MainActor in
+                    let v = await AuthManager.shared.similar(ref)
+                    if !v.isEmpty { self.similar = v; DiskCache.save(v, key: "similar-\(base)") }
+                }
+            }
         }
     }
 

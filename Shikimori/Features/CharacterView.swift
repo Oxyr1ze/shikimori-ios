@@ -42,14 +42,16 @@ final class CharacterModel: ObservableObject {
         error = nil
         do {
             var d = try await AuthManager.shared.character(id: id)
-            let pa = await AuthManager.shared.fetchPosters(ids: (d.animes ?? []).map(\.id), kind: .anime)
-            d.animes = d.animes?.map { var m = $0; m.posterURLs = pa[m.id]; return m }
-            let pm = await AuthManager.shared.fetchPosters(ids: (d.mangas ?? []).map(\.id), kind: .manga)
-            d.mangas = d.mangas?.map { var m = $0; m.posterURLs = pm[m.id]; return m }
             detail = d
             if let html = d.descriptionHtml, !html.isEmpty {
                 description = CommentRenderer.render(html: html)
             }
+            async let paT = AuthManager.shared.fetchPosters(ids: (d.animes ?? []).map(\.id), kind: .anime)
+            async let pmT = AuthManager.shared.fetchPosters(ids: (d.mangas ?? []).map(\.id), kind: .manga)
+            let (pa, pm) = await (paT, pmT)
+            d.animes = d.animes?.map { var m = $0; m.posterURLs = pa[m.id]; return m }
+            d.mangas = d.mangas?.map { var m = $0; m.posterURLs = pm[m.id]; return m }
+            detail = d
         } catch is CancellationError {
         } catch {
             self.error = error.localizedDescription
@@ -134,9 +136,11 @@ final class PersonModel: ObservableObject {
         do {
             var d = try await AuthManager.shared.person(id: id)
             let animeIDs = (d.works ?? []).compactMap { $0.anime?.id }
-            let pa = await AuthManager.shared.fetchPosters(ids: animeIDs, kind: .anime)
             let mangaIDs = (d.works ?? []).compactMap { $0.manga?.id }
-            let pm = await AuthManager.shared.fetchPosters(ids: mangaIDs, kind: .manga)
+            detail = d
+            async let paT = AuthManager.shared.fetchPosters(ids: animeIDs, kind: .anime)
+            async let pmT = AuthManager.shared.fetchPosters(ids: mangaIDs, kind: .manga)
+            let (pa, pm) = await (paT, pmT)
             d.works = d.works?.map { w in
                 var w = w
                 if let a = w.anime { var m = a; m.posterURLs = pa[a.id]; w.anime = m }

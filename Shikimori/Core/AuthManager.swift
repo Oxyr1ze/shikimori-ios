@@ -26,13 +26,13 @@ enum ShikiError: LocalizedError {
     }
 }
 
-/// Не больше ~4 запросов в секунду: лимит Shikimori 5 в секунду.
+/// Не больше ~4,5 запросов в секунду: лимит Shikimori 5 в секунду.
 actor RequestPacer {
     private var next = Date.distantPast
     func wait() async {
         let now = Date()
         let start = max(now, next)
-        next = start.addingTimeInterval(0.25)
+        next = start.addingTimeInterval(0.22)
         let delay = start.timeIntervalSince(now)
         if delay > 0 {
             try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
