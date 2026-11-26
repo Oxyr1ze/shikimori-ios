@@ -249,61 +249,17 @@ struct CharacterView: View {
 final class PersonModel: ObservableObject {
     @Published var detail: PersonDetail?
     @Published var error: String?
-    /// Популярность работ внутри раздела: 0 — самое популярное, 1 — самое непопулярное (ключ «anime-123»).
-    @Published var popularity: [String: Double] = [:]
-    /// Порядок работ окончательный (популярность и постеры получены): до этого ленты не показываем, чтобы они не перестраивались на глазах.
-    @Published var ready = false
-
-    /// Популярность узнаём только для 50 лучших по оценке работ каждого раздела (лимит запроса).
-    private func loadPopularity(_ d: PersonDetail) async {
-        var animes: [Media] = (d.works ?? []).compactMap(\.anime)
-        for g in d.roles ?? [] { animes += g.animes ?? [] }
-        let mangas = (d.works ?? []).compactMap(\.manga)
-        func top(_ list: [Media]) -> [Int] {
-            var seen = Set<Int>()
-            return list.filter { seen.insert($0.id).inserted }
-                .sorted { ratingKey($0) > ratingKey($1) }
-                .prefix(50).map(\.id)
-        }
-        async let a = AuthManager.shared.popularityOrder(kind: .anime, ids: top(animes))
-        async let m = AuthManager.shared.popularityOrder(kind: .manga, ids: top(mangas.filter { !$0.isRanobe }))
-        async let r = AuthManager.shared.popularityOrder(kind: .ranobe, ids: top(mangas.filter { $0.isRanobe }))
-        var result: [String: Double] = [:]
-        func store(_ kind: MediaKind, _ order: [Int]) {
-            let n = Double(max(order.count - 1, 1))
-            for (i, id) in order.enumerated() { result["\(kind.rawValue)-\(id)"] = Double(i) / n }
-        }
-        store(.anime, await a)
-        store(.manga, await m)
-        store(.ranobe, await r)
-        popularity = result
-    }
-
-    private struct Snapshot: Codable {
-        var detail: PersonDetail
-        var popularity: [String: Double]
-    }
 
     func load(id: Int) async {
         error = nil
-        // уже открывали этого человека: показываем всё сразу, обновляем в фоне
-        if let snap = DiskCache.load(Snapshot.self, key: "person-snap-\(id)") {
-            detail = snap.detail
-            popularity = snap.popularity
-            ready = true
-        } else {
-            ready = false
-        }
         do {
             var d = try await AuthManager.shared.person(id: id)
             let animeIDs = (d.works ?? []).compactMap { $0.anime?.id }
             let mangaIDs = (d.works ?? []).compactMap { $0.manga?.id }
-            if !ready { detail = d }
-            async let popT: Void = loadPopularity(d)
+            detail = d
             async let paT = AuthManager.shared.fetchPosters(ids: animeIDs, kind: .anime)
             async let pmT = AuthManager.shared.fetchPosters(ids: mangaIDs, kind: .manga)
             let (pa, pm) = await (paT, pmT)
-            await popT
             d.works = d.works?.map { w in
                 var w = w
                 if let a = w.anime { var m = a; m.posterURLs = pa[a.id]; w.anime = m }
@@ -311,8 +267,6 @@ final class PersonModel: ObservableObject {
                 return w
             }
             detail = d
-            ready = true
-            DiskCache.save(Snapshot(detail: d, popularity: popularity), key: "person-snap-\(id)")
         } catch is CancellationError {
         } catch {
             self.error = error.localizedDescription
@@ -362,20 +316,6 @@ extension PersonDetail {
         func date(_ g: PersonRoleGroup) -> String { (g.animes ?? []).map(\.sortDate).max() ?? "" }
         return groups.sorted { a, b in byDate ? date(a) > date(b) : rating(a) > rating(b) }
     }
-}
-
-/// Порядок «самое популярное и лучшее»: складываем место по популярности и место по оценке.
-func blendedSort<T>(_ items: [T], rating: (T) -> Double, pop: (T) -> Double) -> [T] {
-    let n = Double(max(items.count - 1, 1))
-    let byRating = items.indices.sorted { rating(items[$0]) > rating(items[$1]) }
-    var rPct = [Double](repeating: 1, count: items.count)
-    for (pos, i) in byRating.enumerated() { rPct[i] = Double(pos) / n }
-    return items.indices.sorted { a, b in
-        let ka = rPct[a] + pop(items[a])
-        let kb = rPct[b] + pop(items[b])
-        if ka != kb { return ka < kb }
-        return rating(items[a]) > rating(items[b])
-    }.map { items[$0] }
 }
 
 func sortWorks(_ items: [WorkItem], byDate: Bool) -> [WorkItem] {
@@ -615,15 +555,11 @@ struct PersonView: View {
         return rows
     }
 
-    /// Персонажи, которых озвучил человек (без повторов), самые популярные и лучшие — первыми.
+    /// Персонажи, которых озвучил человек (без повторов), лучшие по оценке — первыми.
     private func voiced(_ d: PersonDetail) -> [CastPerson] {
         var seen = Set<Int>()
         var result: [CastPerson] = []
-        let groups = blendedSort(
-            d.sortedRoleGroups(byDate: false),
-            rating: { g in (g.animes ?? []).map(ratingKey).max() ?? -999 },
-            pop: { g in (g.animes ?? []).map { model.popularity["anime-\($0.id)"] ?? 1 }.min() ?? 1 }
-        )
+        let groups = d.sortedRoleGroups(byDate: false)
         for group in groups {
             for c in group.characters ?? [] where seen.insert(c.id).inserted { result.append(c) }
         }
@@ -649,11 +585,7 @@ struct PersonView: View {
 
     @ViewBuilder
     private func content(_ d: PersonDetail) -> some View {
-        let works = blendedSort(
-            d.workItems,
-            rating: { ratingKey($0.media) },
-            pop: { model.popularity[$0.id] ?? 1 }
-        )
+        let works = sortWorks(d.workItems, byDate: false)
         let chars = voiced(d)
         let rows = infoRows(d)
         let grouped = d.groupedRoles?.items ?? []
@@ -667,11 +599,7 @@ struct PersonView: View {
             if !rows.isEmpty { InfoRowsCard(rows: rows) }
             if !grouped.isEmpty { groupedCard(grouped) }
 
-            if !model.ready && (!chars.isEmpty || !works.isEmpty) {
-                ProgressView().frame(maxWidth: .infinity).padding(.vertical, 30)
-            }
-
-            if model.ready && !chars.isEmpty {
+            if !chars.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
                     SectionLink(title: "Роли (\(chars.count))") { PersonRolesScreen(model: model) }
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -685,7 +613,7 @@ struct PersonView: View {
                 }
             }
 
-            if model.ready && !works.isEmpty {
+            if !works.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
                     SectionLink(title: "Участие в проектах (\(works.count))") { PersonWorksScreen(model: model) }
                     ScrollView(.horizontal, showsIndicators: false) {
