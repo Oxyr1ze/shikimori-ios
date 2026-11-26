@@ -10,7 +10,7 @@ struct CastAvatar: View {
         VStack(spacing: 6) {
             Color(UIColor.tertiarySystemFill)
                 .frame(width: size, height: size)
-                .overlay { RemoteImage(urls: person.imageURLs) }
+                .overlay { RemoteImage(urls: person.imageURLs, placeholder: "person.fill") }
                 .clipShape(Circle())
             Text(person.title)
                 .font(.caption.weight(.semibold))
@@ -140,7 +140,7 @@ struct PersonHeader: View {
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 16) {
-            PosterView(urls: posters, radius: 22).frame(width: 128)
+            PosterView(urls: posters, radius: 22, placeholder: "person.fill").frame(width: 128)
             VStack(alignment: .leading, spacing: 6) {
                 Text(title).font(.title2.weight(.heavy)).fixedSize(horizontal: false, vertical: true)
                 ForEach(others, id: \.self) { n in
@@ -428,7 +428,7 @@ struct RoleGroupCard: View {
                         HStack(spacing: 10) {
                             Color(UIColor.tertiarySystemFill)
                                 .frame(width: 48, height: 48)
-                                .overlay { RemoteImage(urls: c.imageURLs) }
+                                .overlay { RemoteImage(urls: c.imageURLs, placeholder: "person.fill") }
                                 .clipShape(Circle())
                             Text(c.title).font(.subheadline.weight(.semibold))
                                 .lineLimit(2).multilineTextAlignment(.leading)

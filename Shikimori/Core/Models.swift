@@ -86,10 +86,16 @@ struct Media: Codable, Identifiable, Hashable {
     }
     /// Крупный постер: варианты по порядку, пока один не загрузится.
     var posterCandidates: [URL] {
-        urlList([posterURLs?.original, posterURLs?.main, image?.original])
+        urlList([posterURLs?.original, posterURLs?.main, image?.original]) + fallbackURLs
     }
     var thumbCandidates: [URL] {
-        urlList([posterURLs?.main, posterURLs?.preview, image?.original, image?.preview])
+        urlList([posterURLs?.main, posterURLs?.preview, image?.original, image?.preview]) + fallbackURLs
+    }
+    /// Запасная картинка с MyAnimeList (номера совпадают).
+    var fallbackURLs: [URL] {
+        let mangaKinds: Set<String> = ["manga", "manhwa", "manhua", "one_shot", "doujin", "light_novel", "novel"]
+        let isManga = (kind.map { mangaKinds.contains($0) } ?? false) || (episodes == nil && (chapters != nil || volumes != nil))
+        return ExternalImages.url(isManga ? "manga" : "anime", id).map { [$0] } ?? []
     }
     var scoreText: String? {
         guard let s = score, let v = Double(s), v > 0 else { return nil }
@@ -130,11 +136,33 @@ struct CastPerson: Codable, Hashable {
     var name: String?
     var russian: String?
     var image: ImageSet?
+    /// characters или people: нужен, чтобы искать запасную картинку (не хранится, определяется по месту в ответе).
+    var fbKind: String? = nil
+
+    enum CodingKeys: String, CodingKey { case id, name, russian, image }
+
+    init(id: Int, name: String?, russian: String?, image: ImageSet?, fbKind: String? = nil) {
+        self.id = id; self.name = name; self.russian = russian; self.image = image; self.fbKind = fbKind
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(Int.self, forKey: .id)
+        name = try? c.decodeIfPresent(String.self, forKey: .name)
+        russian = try? c.decodeIfPresent(String.self, forKey: .russian)
+        image = try? c.decodeIfPresent(ImageSet.self, forKey: .image)
+        let path = decoder.codingPath.map(\.stringValue)
+        if path.contains("character") || path.contains("characters") { fbKind = "characters" }
+        else if path.contains("person") || path.contains("seyu") || path.contains("people") { fbKind = "people" }
+    }
+
     var title: String {
         if let r = russian, !r.isEmpty { return r }
         return name ?? ""
     }
-    var imageURLs: [URL] { urlList([image?.original, image?.preview, image?.x96]) }
+    var imageURLs: [URL] {
+        urlList([image?.original, image?.preview, image?.x96]) + (fbKind.flatMap { ExternalImages.url($0, id) }.map { [$0] } ?? [])
+    }
 }
 
 struct Role: Codable, Identifiable, Hashable {
@@ -276,7 +304,10 @@ struct MediaDetail: Codable, Identifiable {
         return name
     }
     var posterCandidates: [URL] {
-        urlList([posterURLs?.original, posterURLs?.main, image?.original])
+        let mangaKinds: Set<String> = ["manga", "manhwa", "manhua", "one_shot", "doujin", "light_novel", "novel"]
+        let isManga = (kind.map { mangaKinds.contains($0) } ?? false) || (episodes == nil && (chapters != nil || volumes != nil))
+        return urlList([posterURLs?.original, posterURLs?.main, image?.original])
+            + (ExternalImages.url(isManga ? "manga" : "anime", id).map { [$0] } ?? [])
     }
     var scoreText: String? {
         guard let s = score, let v = Double(s), v > 0 else { return nil }
@@ -470,7 +501,7 @@ struct FavouriteItem: Codable, Hashable {
         return m
     }
     var person: CastPerson {
-        CastPerson(id: id, name: name, russian: russian, image: ImageSet(original: image, preview: image, x96: image, x48: image))
+        CastPerson(id: id, name: name, russian: russian, image: ImageSet(original: image, preview: image, x96: image, x48: image), fbKind: "characters")
     }
 }
 
@@ -548,7 +579,7 @@ struct CharacterDetail: Codable {
         if let r = russian, !r.isEmpty { return r }
         return name ?? ""
     }
-    var posterURLs: [URL] { urlList([image?.original, image?.preview, image?.x96]) }
+    var posterURLs: [URL] { urlList([image?.original, image?.preview, image?.x96]) + (ExternalImages.url("characters", id).map { [$0] } ?? []) }
 }
 
 struct PersonRoleGroup: Codable {
@@ -581,7 +612,7 @@ struct PersonDetail: Codable {
         if let r = russian, !r.isEmpty { return r }
         return name ?? ""
     }
-    var posterURLs: [URL] { urlList([image?.original, image?.preview, image?.x96]) }
+    var posterURLs: [URL] { urlList([image?.original, image?.preview, image?.x96]) + (ExternalImages.url("people", id).map { [$0] } ?? []) }
 }
 
 

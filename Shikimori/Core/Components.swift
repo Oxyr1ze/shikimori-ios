@@ -43,22 +43,48 @@ enum ImageCache {
 /// Картинка с запасными адресами: если первый не загрузился, пробуем следующий.
 struct RemoteImage: View {
     let urls: [URL]
+    /// Значок, если картинки нет нигде (постер, человек).
+    var placeholder: String? = nil
     @State private var image: UIImage?
+    @State private var failed = false
 
     var body: some View {
         Group {
             if let image {
                 Image(uiImage: image).resizable().scaledToFill()
+            } else if failed, let placeholder {
+                ImagePlaceholder(symbol: placeholder)
             } else {
                 Color.clear
             }
         }
         .task(id: urls) {
+            failed = false
             for u in urls {
-                if let img = await ImageCache.fetch(u) {
+                let real: URL?
+                if ExternalImages.isFallback(u) { real = await ExternalImages.resolve(u) } else { real = u }
+                guard let real else { continue }
+                if let img = await ImageCache.fetch(real) {
                     image = img
                     return
                 }
+            }
+            failed = true
+        }
+    }
+}
+
+/// Красивая заглушка, когда постера нет ни на Shikimori, ни на MyAnimeList.
+struct ImagePlaceholder: View {
+    let symbol: String
+    var body: some View {
+        GeometryReader { g in
+            ZStack {
+                LinearGradient(colors: [Theme.accent.opacity(0.35), Color(UIColor.tertiarySystemFill)],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                Image(systemName: symbol)
+                    .font(.system(size: min(g.size.width, g.size.height) * 0.34, weight: .light))
+                    .foregroundStyle(.white.opacity(0.7))
             }
         }
     }
@@ -68,11 +94,12 @@ struct RemoteImage: View {
 struct PosterView: View {
     let urls: [URL]
     var radius: CGFloat = 20
+    var placeholder: String = "film"
 
     var body: some View {
         Color(UIColor.tertiarySystemFill)
             .aspectRatio(2.0 / 3.0, contentMode: .fit)
-            .overlay { RemoteImage(urls: urls) }
+            .overlay { RemoteImage(urls: urls, placeholder: placeholder) }
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
     }
 }

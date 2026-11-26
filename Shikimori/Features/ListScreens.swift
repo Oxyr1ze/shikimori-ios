@@ -9,7 +9,7 @@ struct PersonCellView: View {
         HStack(spacing: 10) {
             Color(UIColor.tertiarySystemFill)
                 .frame(width: 54, height: 54)
-                .overlay { RemoteImage(urls: person.imageURLs) }
+                .overlay { RemoteImage(urls: person.imageURLs, placeholder: "person.fill") }
                 .clipShape(Circle())
             VStack(alignment: .leading, spacing: 2) {
                 Text(person.title).font(.subheadline.weight(.semibold)).lineLimit(2).multilineTextAlignment(.leading)
