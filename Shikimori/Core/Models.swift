@@ -71,10 +71,18 @@ struct Media: Codable, Identifiable, Hashable {
     var volumes: Int?
     var posterURLs: PosterURLs?
     var role: String?
+    var airedOn: String?
+    var releasedOn: String?
 
     var title: String {
         if let r = russian, !r.isEmpty { return r }
         return name
+    }
+    /// Дата выхода для сортировки (строка вида 2013-04-07).
+    var sortDate: String { airedOn ?? releasedOn ?? "" }
+    var yearText: String? {
+        let d = sortDate
+        return d.count >= 4 ? String(d.prefix(4)) : nil
     }
     /// Крупный постер: варианты по порядку, пока один не загрузится.
     var posterCandidates: [URL] {
@@ -130,10 +138,111 @@ struct CastPerson: Codable, Hashable {
 }
 
 struct Role: Codable, Identifiable, Hashable {
+    var roles: [String]?
     var rolesRussian: [String]?
     var character: CastPerson?
     var person: CastPerson?
     var id: String { "\(character?.id ?? 0)-\(person?.id ?? 0)" }
+
+    /// Главный герой (на сайте «Main»); старый кэш хранит только русские подписи.
+    var isMain: Bool {
+        (roles ?? []).contains("Main") || (rolesRussian ?? []).contains("Main")
+    }
+    var isSupporting: Bool {
+        (roles ?? []).contains("Supporting") || (rolesRussian ?? []).contains("Supporting")
+    }
+    /// Подписи для создателя: роли по-русски, самые важные первыми.
+    var staffRolesText: String {
+        let eng = roles ?? []
+        let rus = rolesRussian ?? []
+        guard eng.count == rus.count, !eng.isEmpty else { return rus.joined(separator: ", ") }
+        return zip(eng, rus).sorted { staffPriority($0.0) < staffPriority($1.0) }.map(\.1).joined(separator: ", ")
+    }
+    var staffRank: Int { (roles ?? []).map(staffPriority).min() ?? 999 }
+}
+
+/// Порядок важности ролей создателей (как принято: автор, режиссёр, сценарий, дизайн, музыка…).
+private let staffOrder: [String] = [
+    "Original Creator", "Story & Art", "Story", "Art", "Creator",
+    "Director", "Co-Director", "Series Composition", "Script", "Screenplay",
+    "Original Character Design", "Character Design", "Music",
+    "Theme Song Composition", "Theme Song Arrangement", "Theme Song Lyrics", "Theme Song Performance",
+    "Inserted Song Performance", "Art Director", "Chief Animation Director", "Animation Director",
+    "Assistant Animation Director", "Sound Director", "Director of Photography", "Color Design",
+    "Mechanical Design", "Storyboard", "Episode Director", "Assistant Director",
+    "Chief Producer", "Executive Producer", "Producer", "Planning Producer", "Associate Producer",
+    "Co-Producer", "Assistant Producer", "Planning", "Series Production Director"
+]
+func staffPriority(_ role: String) -> Int {
+    staffOrder.firstIndex(of: role) ?? (staffOrder.count + 1)
+}
+
+/// Дата, которую сайт может прислать строкой или объектом {year, month, day}; неполная тоже подходит.
+struct LooseDate: Codable, Hashable {
+    var year: Int?
+    var month: Int?
+    var day: Int?
+
+    enum CodingKeys: String, CodingKey { case year, month, day }
+
+    init(from decoder: Decoder) throws {
+        if let c = try? decoder.singleValueContainer(), let str = try? c.decode(String.self) {
+            let parts = str.prefix(10).split(separator: "-").compactMap { Int($0) }
+            if parts.count > 0 { year = parts[0] }
+            if parts.count > 1 { month = parts[1] }
+            if parts.count > 2 { day = parts[2] }
+        } else if let k = try? decoder.container(keyedBy: CodingKeys.self) {
+            year = (try? k.decodeIfPresent(Int.self, forKey: .year)) ?? nil
+            month = (try? k.decodeIfPresent(Int.self, forKey: .month)) ?? nil
+            day = (try? k.decodeIfPresent(Int.self, forKey: .day)) ?? nil
+        }
+    }
+
+    var text: String? {
+        let gen = ["января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа",
+                   "сентября", "октября", "ноября", "декабря"]
+        let nom = ["январь", "февраль", "март", "апрель", "май", "июнь", "июль", "август",
+                   "сентябрь", "октябрь", "ноябрь", "декабрь"]
+        var parts: [String] = []
+        if let m = month, (1...12).contains(m) {
+            if let d = day { parts = ["\(d)", gen[m - 1]] } else { parts = [nom[m - 1]] }
+        }
+        if let y = year { parts.append("\(y)") }
+        return parts.isEmpty ? nil : parts.joined(separator: " ")
+    }
+}
+
+/// Пара «название роли — сколько раз» из поля grouped_roles.
+struct RoleCount: Codable, Hashable {
+    var name: String
+    var count: Int
+    init(from decoder: Decoder) throws {
+        var c = try decoder.unkeyedContainer()
+        name = try c.decode(String.self)
+        count = try c.decode(Int.self)
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.unkeyedContainer()
+        try c.encode(name)
+        try c.encode(count)
+    }
+}
+
+private struct SkipValue: Decodable { init(from decoder: Decoder) throws {} }
+
+/// Массив, в котором испорченные элементы пропускаются, а не ломают весь ответ.
+struct LossyArray<T: Codable & Hashable>: Codable, Hashable {
+    var items: [T] = []
+    init(from decoder: Decoder) throws {
+        var c = try decoder.unkeyedContainer()
+        while !c.isAtEnd {
+            if let v = try? c.decode(T.self) { items.append(v) } else { _ = try? c.decode(SkipValue.self) }
+        }
+    }
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.unkeyedContainer()
+        for i in items { try c.encode(i) }
+    }
 }
 
 struct MediaDetail: Codable, Identifiable {
@@ -433,6 +542,7 @@ struct CharacterDetail: Codable {
     var seyu: [CastPerson]?
     var animes: [Media]?
     var mangas: [Media]?
+    var topicId: Int?
 
     var title: String {
         if let r = russian, !r.isEmpty { return r }
@@ -461,6 +571,11 @@ struct PersonDetail: Codable {
     var image: ImageSet?
     var roles: [PersonRoleGroup]?
     var works: [PersonWork]?
+    var topicId: Int?
+    var birthOn: LooseDate?
+    var deceasedOn: LooseDate?
+    var website: String?
+    var groupedRoles: LossyArray<RoleCount>?
 
     var title: String {
         if let r = russian, !r.isEmpty { return r }

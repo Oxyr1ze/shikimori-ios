@@ -171,6 +171,7 @@ struct TitleView: View {
     @State private var tab: TitleTab = .info
     @State private var descOpen = false
     @State private var allCharacters = false
+    @State private var allSupporting = false
     @State private var allStaff = false
     @State private var allRelated = false
     @State private var relatedMode = 0
@@ -377,7 +378,7 @@ struct TitleView: View {
                             .padding(.horizontal, 6)
                     }
                     .buttonStyle(.glass)
-                    .accessibilityLabel("Обсуждение")
+                    .accessibilityLabel("Комментарии")
                 }
             }
 
@@ -770,7 +771,7 @@ struct TitleView: View {
 
     // MARK: Вкладка «Люди»
 
-    private func personCell(_ p: CastPerson, subtitle: String?) -> some View {
+    private func personCell(_ p: CastPerson, subtitle: String?, accent: Bool = false) -> some View {
         HStack(spacing: 10) {
             Color(UIColor.tertiarySystemFill)
                 .frame(width: 54, height: 54)
@@ -779,7 +780,9 @@ struct TitleView: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(p.title).font(.subheadline.weight(.semibold)).lineLimit(2).multilineTextAlignment(.leading)
                 if let subtitle, !subtitle.isEmpty {
-                    Text(subtitle).font(.caption).foregroundStyle(.secondary).lineLimit(2).multilineTextAlignment(.leading)
+                    Text(subtitle).font(.caption.weight(accent ? .semibold : .regular))
+                        .foregroundStyle(accent ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.secondary))
+                        .lineLimit(2).multilineTextAlignment(.leading)
                 }
             }
             Spacer(minLength: 0)
@@ -789,31 +792,55 @@ struct TitleView: View {
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
 
+    private func characterGrid(_ list: [Role], expanded: Bool, limit: Int, main: Bool) -> some View {
+        let cols = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
+        return LazyVGrid(columns: cols, spacing: 10) {
+            ForEach(expanded ? list : Array(list.prefix(limit))) { role in
+                if let c = role.character {
+                    NavigationLink { CharacterView(id: c.id) } label: {
+                        personCell(c, subtitle: main ? "Главный герой" : "Второстепенный", accent: main)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+    }
+
     @ViewBuilder
     private var peopleTab: some View {
         let chars = model.roles.filter { $0.character != nil }
+        // сначала главные герои, потом второстепенные (порядок внутри групп как на сайте)
+        let mainChars = chars.filter { $0.isMain }
+        let otherChars = chars.filter { !$0.isMain }
         let staff = model.roles.filter { $0.person != nil }
+            .enumerated()
+            .sorted { ($0.element.staffRank, $0.offset) < ($1.element.staffRank, $1.offset) }
+            .map(\.element)
         let cols = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
         VStack(alignment: .leading, spacing: 18) {
             if chars.isEmpty && staff.isEmpty {
                 Text("Данных о персонажах и создателях пока нет").font(.footnote).foregroundStyle(.secondary)
             }
-            if !chars.isEmpty {
+            if !mainChars.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
-                    sectionTitle("Персонажи")
-                    LazyVGrid(columns: cols, spacing: 10) {
-                        ForEach(allCharacters ? chars : Array(chars.prefix(8))) { role in
-                            if let c = role.character {
-                                NavigationLink { CharacterView(id: c.id) } label: {
-                                    personCell(c, subtitle: role.rolesRussian?.joined(separator: ", "))
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-                    if chars.count > 8 {
-                        Button(allCharacters ? "Свернуть" : "Показать всех (\(chars.count))") {
+                    sectionTitle(otherChars.isEmpty ? "Персонажи" : "Главные герои")
+                    characterGrid(mainChars, expanded: allCharacters, limit: 8, main: true)
+                    if mainChars.count > 8 {
+                        Button(allCharacters ? "Свернуть" : "Показать всех (\(mainChars.count))") {
                             withAnimation { allCharacters.toggle() }
+                        }
+                        .font(.subheadline.weight(.semibold))
+                        .frame(maxWidth: .infinity)
+                    }
+                }
+            }
+            if !otherChars.isEmpty {
+                VStack(alignment: .leading, spacing: 10) {
+                    sectionTitle(mainChars.isEmpty ? "Персонажи" : "Второстепенные герои")
+                    characterGrid(otherChars, expanded: allSupporting, limit: 8, main: false)
+                    if otherChars.count > 8 {
+                        Button(allSupporting ? "Свернуть" : "Показать всех (\(otherChars.count))") {
+                            withAnimation { allSupporting.toggle() }
                         }
                         .font(.subheadline.weight(.semibold))
                         .frame(maxWidth: .infinity)
@@ -827,7 +854,7 @@ struct TitleView: View {
                         ForEach(allStaff ? staff : Array(staff.prefix(8))) { role in
                             if let p = role.person {
                                 NavigationLink { PersonView(id: p.id) } label: {
-                                    personCell(p, subtitle: role.rolesRussian?.joined(separator: ", "))
+                                    personCell(p, subtitle: role.staffRolesText)
                                 }
                                 .buttonStyle(.plain)
                             }

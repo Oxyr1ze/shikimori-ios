@@ -94,6 +94,7 @@ struct CommentsView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
+                if canPost { composer }
                 ForEach(model.comments) { c in
                     CommentRowView(comment: c, blocks: model.blocks[c.id] ?? [],
                                    onReply: canPost ? { startReply(to: $0) } : nil)
@@ -122,16 +123,14 @@ struct CommentsView: View {
         }
         .scrollDismissesKeyboard(.interactively)
         .background(AppBackground())
-        .navigationTitle("Обсуждение")
+        .navigationTitle("Комментарии")
         .navigationBarTitleDisplayMode(.inline)
-        .safeAreaInset(edge: .bottom) { if canPost { composer } }
         .sheet(isPresented: $showSmileys) {
             SmileyPicker { code in
                 draft += (draft.isEmpty || draft.hasSuffix(" ") || draft.hasSuffix("\n") ? "" : " ") + code + " "
             }
             .presentationDetents([.medium, .large])
         }
-        .toolbar(.hidden, for: .tabBar)
         .simultaneousGesture(TapGesture().onEnded { focused = false })
         .task {
             if model.comments.isEmpty {
@@ -191,9 +190,6 @@ struct CommentsView: View {
                 .disabled(!canSend)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 6)
-        .padding(.bottom, 6)
     }
 }
 
