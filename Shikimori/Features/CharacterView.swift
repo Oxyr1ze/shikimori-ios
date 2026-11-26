@@ -181,7 +181,6 @@ final class CharacterModel: ObservableObject {
             d.animes = d.animes?.map { var m = $0; m.posterURLs = pa[m.id]; return m }
             d.mangas = d.mangas?.map { var m = $0; m.posterURLs = pm[m.id]; return m }
             detail = d
-            ready = true
         } catch is CancellationError {
         } catch {
             self.error = error.localizedDescription
@@ -300,6 +299,7 @@ final class PersonModel: ObservableObject {
                 return w
             }
             detail = d
+            ready = true
         } catch is CancellationError {
         } catch {
             self.error = error.localizedDescription
