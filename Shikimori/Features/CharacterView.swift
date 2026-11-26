@@ -279,14 +279,26 @@ final class PersonModel: ObservableObject {
         popularity = result
     }
 
+    private struct Snapshot: Codable {
+        var detail: PersonDetail
+        var popularity: [String: Double]
+    }
+
     func load(id: Int) async {
         error = nil
-        ready = false
+        // уже открывали этого человека: показываем всё сразу, обновляем в фоне
+        if let snap = DiskCache.load(Snapshot.self, key: "person-snap-\(id)") {
+            detail = snap.detail
+            popularity = snap.popularity
+            ready = true
+        } else {
+            ready = false
+        }
         do {
             var d = try await AuthManager.shared.person(id: id)
             let animeIDs = (d.works ?? []).compactMap { $0.anime?.id }
             let mangaIDs = (d.works ?? []).compactMap { $0.manga?.id }
-            detail = d
+            if !ready { detail = d }
             async let popT: Void = loadPopularity(d)
             async let paT = AuthManager.shared.fetchPosters(ids: animeIDs, kind: .anime)
             async let pmT = AuthManager.shared.fetchPosters(ids: mangaIDs, kind: .manga)
@@ -300,6 +312,7 @@ final class PersonModel: ObservableObject {
             }
             detail = d
             ready = true
+            DiskCache.save(Snapshot(detail: d, popularity: popularity), key: "person-snap-\(id)")
         } catch is CancellationError {
         } catch {
             self.error = error.localizedDescription

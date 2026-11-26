@@ -107,11 +107,7 @@ enum ExternalImages {
                         return (c["extraLarge"] as? String) ?? (c["large"] as? String)
                     })
                 }
-                // 2. Jikan (MyAnimeList)
-                if let r = get("https://api.jikan.moe/v4/\(kind)/\(id)") {
-                    list.append(Source(request: r) { self.jikanImage($0) })
-                }
-                // 3. Kitsu
+                // 2. Kitsu
                 let site = kind == "anime" ? "myanimelist/anime" : "myanimelist/manga"
                 if let r = get("https://kitsu.io/api/edge/mappings?filter%5BexternalSite%5D=\(site)&filter%5BexternalId%5D=\(id)&include=item", headers: ["Accept": "application/vnd.api+json"]) {
                     list.append(Source(request: r) { data in
@@ -122,10 +118,8 @@ enum ExternalImages {
                         return (poster["large"] as? String) ?? (poster["original"] as? String)
                     })
                 }
-            } else if let r = get("https://api.jikan.moe/v4/\(kind)/\(id)") {
-                list.append(Source(request: r) { self.jikanImage($0) })
             }
-            // последний вариант: страница на MyAnimeList (картинка в og:image)
+            // страница на MyAnimeList: страница на MyAnimeList (картинка в og:image)
             let page = ["anime": "anime", "manga": "manga", "characters": "character", "people": "people"][kind] ?? kind
             if let r = get("https://myanimelist.net/\(page)/\(id)", headers: ["User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1"]) {
                 list.append(Source(request: r) { data in
@@ -136,6 +130,10 @@ enum ExternalImages {
                     let s = String(rest[..<end])
                     return s.contains("cdn.myanimelist.net/images") ? s : nil
                 })
+            }
+            // Jikan последним: у части пользователей он недоступен и съедает время ожидания
+            if let r = get("https://api.jikan.moe/v4/\(kind)/\(id)") {
+                list.append(Source(request: r) { self.jikanImage($0) })
             }
             return list
         }

@@ -29,7 +29,13 @@ enum ImageCache {
         return img
     }
 
-    static func fetch(_ url: URL) async -> UIImage? {
+    static func fetch(_ original: URL) async -> UIImage? {
+        // запасной адрес (shikifb://…) сначала превращаем в настоящий
+        var url = original
+        if ExternalImages.isFallback(original) {
+            guard let real = await ExternalImages.resolve(original) else { return nil }
+            url = real
+        }
         if let c = cached(url) { return c }
         guard let (data, resp) = try? await URLSession.shared.data(from: url),
               (resp as? HTTPURLResponse)?.statusCode == 200,
