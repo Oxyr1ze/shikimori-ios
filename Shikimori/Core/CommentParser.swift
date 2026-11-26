@@ -1,4 +1,5 @@
 import SwiftUI
+import ImageIO
 
 /// Блок комментария: текст, цитата, картинка или спойлер.
 enum CRun {
@@ -453,27 +454,108 @@ struct CommentImage: View {
 }
 
 
-/// Загрузка и хранение смайликов-картинок (уменьшаются до размера строки текста).
+/// Смайлик Shikimori: GIF, разобранный на кадры (уменьшены до высоты строки текста).
+struct SmileyAnim: @unchecked Sendable {
+    let frames: [CGImage]
+    let starts: [Double]
+    let total: Double
+    let still: UIImage        // первый кадр
+    let placeholder: UIImage  // прозрачная картинка того же размера: занимает место в тексте
+
+    var isAnimated: Bool { frames.count > 1 && total > 0 }
+
+    func frame(at t: Double) -> CGImage {
+        guard isAnimated else { return frames[0] }
+        let m = t.truncatingRemainder(dividingBy: total)
+        var i = 0
+        for (k, st) in starts.enumerated() where st <= m { i = k }
+        return frames[i]
+    }
+
+    static func decode(_ data: Data) -> SmileyAnim? {
+        guard let src = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        let count = CGImageSourceGetCount(src)
+        guard count > 0 else { return nil }
+        let height: CGFloat = 28
+        let scale: CGFloat = 3
+        var frames: [CGImage] = []
+        var starts: [Double] = []
+        var total = 0.0
+        for i in 0..<count {
+            guard let probe = CGImageSourceCopyPropertiesAtIndex(src, i, nil) as? [CFString: Any],
+                  let w = probe[kCGImagePropertyPixelWidth] as? CGFloat,
+                  let h = probe[kCGImagePropertyPixelHeight] as? CGFloat, h > 0 else { continue }
+            let opts: [CFString: Any] = [
+                kCGImageSourceCreateThumbnailFromImageAlways: true,
+                kCGImageSourceCreateThumbnailWithTransform: true,
+                kCGImageSourceThumbnailMaxPixelSize: height * scale * max(1, w / h)
+            ]
+            guard let cg = CGImageSourceCreateThumbnailAtIndex(src, i, opts as CFDictionary) else { continue }
+            var delay = 0.1
+            if let gif = probe[kCGImagePropertyGIFDictionary] as? [CFString: Any] {
+                let d = (gif[kCGImagePropertyGIFUnclampedDelayTime] as? Double)
+                    ?? (gif[kCGImagePropertyGIFDelayTime] as? Double) ?? 0.1
+                delay = d < 0.02 ? 0.1 : d
+            }
+            frames.append(cg)
+            starts.append(total)
+            total += delay
+        }
+        guard let first = frames.first else { return nil }
+        let size = CGSize(width: CGFloat(first.width) / scale, height: CGFloat(first.height) / scale)
+        let still = UIImage(cgImage: first, scale: scale, orientation: .up)
+        let fmt = UIGraphicsImageRendererFormat()
+        fmt.scale = scale
+        let placeholder = UIGraphicsImageRenderer(size: size, format: fmt).image { _ in }
+        return SmileyAnim(frames: frames, starts: starts, total: total, still: still, placeholder: placeholder)
+    }
+}
+
+/// Загрузка и хранение смайликов (GIF разбираются на кадры один раз).
 @MainActor
 final class SmileyStore: ObservableObject {
     static let shared = SmileyStore()
-    @Published private(set) var images: [URL: UIImage] = [:]
+    @Published private(set) var anims: [URL: SmileyAnim] = [:]
     private var loading: Set<URL> = []
 
+    static func url(for code: String) -> URL? {
+        guard let enc = code.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) else { return nil }
+        return URL(string: ShikiConfig.host + "/images/smileys/" + enc + ".gif")
+    }
+
     func load(_ url: URL) async {
-        if images[url] != nil || loading.contains(url) { return }
+        if anims[url] != nil || loading.contains(url) { return }
         loading.insert(url)
         defer { loading.remove(url) }
-        guard let (data, _) = try? await URLSession.shared.data(from: url),
-              let ui = UIImage(data: data), ui.size.height > 0 else { return }
-        let height: CGFloat = 28
-        let width = ui.size.width / ui.size.height * height
-        let fmt = UIGraphicsImageRendererFormat()
-        fmt.scale = 3
-        let scaled = UIGraphicsImageRenderer(size: CGSize(width: width, height: height), format: fmt).image { _ in
-            ui.draw(in: CGRect(x: 0, y: 0, width: width, height: height))
+        guard let (data, _) = try? await URLSession.shared.data(from: url) else { return }
+        let anim = await Task.detached(priority: .utility) { SmileyAnim.decode(data) }.value
+        if let anim { anims[url] = anim }
+    }
+}
+
+/// Метка в тексте: на этом месте рисуется кадр анимированного смайлика.
+struct SmileyKey: TextAttribute { let url: URL }
+
+/// Рисует текст как обычно, а вместо прозрачных заглушек подставляет текущий кадр GIF.
+struct SmileyRenderer: TextRenderer {
+    var anims: [URL: SmileyAnim]
+    var time: Double
+
+    var animatableData: Double {
+        get { time }
+        set { time = newValue }
+    }
+
+    func draw(layout: Text.Layout, in ctx: inout GraphicsContext) {
+        for line in layout {
+            for run in line {
+                if let key = run[SmileyKey.self], let a = anims[key.url] {
+                    ctx.draw(Image(decorative: a.frame(at: time), scale: 3), in: run.typographicBounds.rect)
+                } else {
+                    ctx.draw(run)
+                }
+            }
         }
-        images[url] = scaled
     }
 }
 
@@ -532,19 +614,30 @@ struct CommentRichText: View {
         runs.compactMap { if case .smiley(let u) = $0 { return u } else { return nil } }
     }
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var hasAnimated: Bool {
+        smileyURLs.contains { store.anims[$0]?.isAnimated == true }
+    }
+
     var body: some View {
+        let animate = hasAnimated && !reduceMotion
         var result = Text("")
         for run in runs {
             switch run {
             case .text(let a):
                 result = result + Text(applySpoilers(a))
             case .smiley(let url):
-                if let img = store.images[url] {
-                    result = result + Text(Image(uiImage: img))
+                if let a = store.anims[url] {
+                    if animate && a.isAnimated {
+                        result = result + Text(Image(uiImage: a.placeholder)).customAttribute(SmileyKey(url: url))
+                    } else {
+                        result = result + Text(Image(uiImage: a.still))
+                    }
                 }
             }
         }
-        return result
+        let styled = result
             .font(commentFont)
             .lineSpacing(lineSpacing)
             .environment(\.openURL, OpenURLAction { url in
@@ -557,6 +650,15 @@ struct CommentRichText: View {
             .task(id: smileyURLs) {
                 for u in smileyURLs { await store.load(u) }
             }
+        return Group {
+            if animate {
+                TimelineView(.periodic(from: .now, by: 1.0 / 20.0)) { tl in
+                    styled.textRenderer(SmileyRenderer(anims: store.anims, time: tl.date.timeIntervalSinceReferenceDate))
+                }
+            } else {
+                styled
+            }
+        }
     }
 }
 
