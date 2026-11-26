@@ -181,6 +181,7 @@ final class CharacterModel: ObservableObject {
             d.animes = d.animes?.map { var m = $0; m.posterURLs = pa[m.id]; return m }
             d.mangas = d.mangas?.map { var m = $0; m.posterURLs = pm[m.id]; return m }
             detail = d
+            ready = true
         } catch is CancellationError {
         } catch {
             self.error = error.localizedDescription
@@ -251,6 +252,8 @@ final class PersonModel: ObservableObject {
     @Published var error: String?
     /// Популярность работ внутри раздела: 0 — самое популярное, 1 — самое непопулярное (ключ «anime-123»).
     @Published var popularity: [String: Double] = [:]
+    /// Порядок работ окончательный (популярность и постеры получены): до этого ленты не показываем, чтобы они не перестраивались на глазах.
+    @Published var ready = false
 
     /// Популярность узнаём только для 50 лучших по оценке работ каждого раздела (лимит запроса).
     private func loadPopularity(_ d: PersonDetail) async {
@@ -279,6 +282,7 @@ final class PersonModel: ObservableObject {
 
     func load(id: Int) async {
         error = nil
+        ready = false
         do {
             var d = try await AuthManager.shared.person(id: id)
             let animeIDs = (d.works ?? []).compactMap { $0.anime?.id }
@@ -650,7 +654,11 @@ struct PersonView: View {
             if !rows.isEmpty { InfoRowsCard(rows: rows) }
             if !grouped.isEmpty { groupedCard(grouped) }
 
-            if !chars.isEmpty {
+            if !model.ready && (!chars.isEmpty || !works.isEmpty) {
+                ProgressView().frame(maxWidth: .infinity).padding(.vertical, 30)
+            }
+
+            if model.ready && !chars.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
                     SectionLink(title: "Роли (\(chars.count))") { PersonRolesScreen(model: model) }
                     ScrollView(.horizontal, showsIndicators: false) {
@@ -664,7 +672,7 @@ struct PersonView: View {
                 }
             }
 
-            if !works.isEmpty {
+            if model.ready && !works.isEmpty {
                 VStack(alignment: .leading, spacing: 12) {
                     SectionLink(title: "Участие в проектах (\(works.count))") { PersonWorksScreen(model: model) }
                     ScrollView(.horizontal, showsIndicators: false) {

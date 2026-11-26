@@ -56,6 +56,21 @@ final class ApiChecker: ObservableObject {
         r = await request("GET", "/api/animes/52991/similar")
         append("REST similar: HTTP \(r.0)\n\(short(r.1, 150))\n")
 
+        for (name, url) in [("AniList", "https://graphql.anilist.co"),
+                            ("Jikan", "https://api.jikan.moe/v4/anime/52991"),
+                            ("Kitsu", "https://kitsu.io/api/edge/anime?page%5Blimit%5D=1"),
+                            ("MyAnimeList", "https://myanimelist.net/anime/52991")] {
+            guard let u = URL(string: url) else { continue }
+            var req = URLRequest(url: u, timeoutInterval: 8)
+            req.setValue("Mozilla/5.0 (iPhone)", forHTTPHeaderField: "User-Agent")
+            let t0 = Date()
+            if let (_, resp) = try? await URLSession.shared.data(for: req) {
+                append("Источник постеров \(name): HTTP \((resp as? HTTPURLResponse)?.statusCode ?? -1), \(String(format: "%.1f", Date().timeIntervalSince(t0))) с\n")
+            } else {
+                append("Источник постеров \(name): нет ответа за 8 с\n")
+            }
+        }
+
         r = await request("GET", "/api/topics?limit=1&forum=news")
         append("REST /api/topics (news): HTTP \(r.0)\n\(short(r.1, 200))\n")
     }

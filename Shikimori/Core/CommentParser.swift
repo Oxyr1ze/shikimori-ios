@@ -724,19 +724,25 @@ struct VideoPlayerScreen: View {
                 .padding(.top, 56)
             HStack {
                 Button { dismiss() } label: {
-                    Image(systemName: "xmark")
-                        .font(.headline)
-                        .padding(12)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 17, weight: .semibold))
                 }
                 .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .controlSize(.large)
+                .tint(.white)
+                .accessibilityLabel("Закрыть")
                 Spacer()
                 Link(destination: link) {
-                    Label("Открыть в браузере", systemImage: "safari")
-                        .font(.subheadline.weight(.semibold))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 10)
+                    Image(systemName: "safari")
+                        .font(.system(size: 17, weight: .semibold))
+                        .frame(width: 22, height: 22)
                 }
                 .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .controlSize(.large)
+                .tint(.white)
+                .accessibilityLabel("Открыть в браузере")
             }
             .padding(.horizontal, 16)
             .padding(.top, 8)
