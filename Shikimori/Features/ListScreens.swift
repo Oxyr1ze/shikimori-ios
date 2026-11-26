@@ -117,7 +117,7 @@ struct SimilarScreen: View {
                 ForEach(items) { item in
                     NavigationLink { TitleView(ref: MediaRef(id: item.id, kind: kind)) } label: {
                         VStack(alignment: .leading, spacing: 6) {
-                            PosterView(urls: item.thumbCandidates, radius: 18)
+                            PosterView(urls: item.thumbCandidates, radius: 18, rateKey: RateStore.key(kind, item.id))
                                 .overlay(alignment: .topTrailing) {
                                     if let s = item.scoreText { ScoreBadge(text: s).padding(8) }
                                 }

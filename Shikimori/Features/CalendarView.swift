@@ -89,7 +89,7 @@ struct CalendarView: View {
 
     private func row(_ item: CalendarItem) -> some View {
         HStack(spacing: 14) {
-            PosterView(urls: item.anime.thumbCandidates, radius: 12)
+            PosterView(urls: item.anime.thumbCandidates, radius: 12, rateKey: RateStore.key(.anime, item.anime.id))
                 .frame(width: 52)
             VStack(alignment: .leading, spacing: 4) {
                 Text(item.anime.title)

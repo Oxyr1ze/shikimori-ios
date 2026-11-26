@@ -101,11 +101,14 @@ struct PosterView: View {
     let urls: [URL]
     var radius: CGFloat = 20
     var placeholder: String = "film"
+    /// Ключ для отметки «в моём списке» (RateStore.key / Media.rateKey).
+    var rateKey: String? = nil
 
     var body: some View {
         Color(UIColor.tertiarySystemFill)
             .aspectRatio(2.0 / 3.0, contentMode: .fit)
             .overlay { RemoteImage(urls: urls, placeholder: placeholder) }
+            .overlay { RateBadge(key: rateKey) }
             .clipShape(RoundedRectangle(cornerRadius: radius, style: .continuous))
     }
 }
@@ -131,7 +134,7 @@ struct MediaCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            PosterView(urls: media.thumbCandidates)
+            PosterView(urls: media.thumbCandidates, rateKey: media.rateKey)
                 .frame(width: width, height: width * 1.5)
                 .clipped()
             Text(media.title)
@@ -238,6 +241,7 @@ func listStatusColor(_ status: String) -> Color {
     case "completed": return .purple
     case "on_hold": return .orange
     case "dropped": return .red
+    case "rewatching": return .teal
     default: return .gray
     }
 }

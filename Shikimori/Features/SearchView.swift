@@ -13,7 +13,7 @@ struct SearchView: View {
                 ForEach(results) { item in
                     NavigationLink(value: MediaRef(id: item.id, kind: kind)) {
                         HStack(spacing: 14) {
-                            PosterView(urls: item.thumbCandidates, radius: 10)
+                            PosterView(urls: item.thumbCandidates, radius: 10, rateKey: RateStore.key(kind, item.id))
                                 .frame(width: 44)
                             VStack(alignment: .leading, spacing: 3) {
                                 Text(item.title).font(.subheadline.weight(.semibold)).lineLimit(2)

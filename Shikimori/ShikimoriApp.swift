@@ -47,5 +47,9 @@ struct MainTabs: View {
             Tab("Профиль", systemImage: "person.fill") { ProfileView() }
             Tab(role: .search) { SearchView() }
         }
+        .task {
+            RateStore.shared.restore()
+            await RateStore.shared.refresh()
+        }
     }
 }

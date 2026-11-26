@@ -115,6 +115,7 @@ final class TitleModel: ObservableObject {
                     animeID: d.id, status: status.rawValue,
                     targetType: ref.kind == .anime ? "Anime" : "Manga")
             }
+            RateStore.shared.set(RateStore.key(ref.kind, d.id), status: detail?.userRate?.status ?? status.rawValue)
         }
     }
 
@@ -141,6 +142,7 @@ final class TitleModel: ObservableObject {
         await run {
             try await AuthManager.shared.deleteRate(id: rate.id)
             detail?.userRate = nil
+            RateStore.shared.set(RateStore.key(ref.kind, ref.id), status: nil)
         }
     }
 }
@@ -827,9 +829,9 @@ struct TitleView: View {
         model.franchise.sorted { ($0.date ?? 0, $0.id) < ($1.date ?? 0, $1.id) }
     }
 
-    private func relatedRow(poster: [URL], badge: String?, title: String, subtitle: String?, current: Bool = false) -> some View {
+    private func relatedRow(poster: [URL], badge: String?, title: String, subtitle: String?, current: Bool = false, rateKey: String? = nil) -> some View {
         HStack(spacing: 12) {
-            PosterView(urls: poster, radius: 10)
+            PosterView(urls: poster, radius: 10, rateKey: rateKey)
                 .frame(width: 46, height: 66)
             VStack(alignment: .leading, spacing: 3) {
                 if let badge { Text(badge).font(.caption.weight(.semibold)).foregroundStyle(Theme.accent) }
@@ -877,7 +879,8 @@ struct TitleView: View {
                                 TitleView(ref: MediaRef(id: node.id, kind: node.mediaKind))
                             } label: {
                                 relatedRow(poster: nodePoster(node), badge: nil,
-                                           title: node.name ?? "", subtitle: sub)
+                                           title: node.name ?? "", subtitle: sub,
+                                           rateKey: RateStore.key(node.mediaKind, node.id))
                             }
                             .buttonStyle(.plain)
                         }
@@ -903,7 +906,8 @@ struct TitleView: View {
                                 relatedRow(poster: item.media.thumbCandidates, badge: item.relation,
                                            title: item.media.title,
                                            subtitle: [item.media.kind.map { kindTitle($0) }, item.year.map { String($0) }]
-                                               .compactMap { $0 }.joined(separator: " · "))
+                                               .compactMap { $0 }.joined(separator: " · "),
+                                           rateKey: RateStore.key(item.ref.kind, item.media.id))
                             }
                             .buttonStyle(.plain)
                         }

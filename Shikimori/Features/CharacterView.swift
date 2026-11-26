@@ -355,7 +355,7 @@ struct WorkCard: View {
     var body: some View {
         let m = item.media
         VStack(alignment: .leading, spacing: 6) {
-            PosterView(urls: m.thumbCandidates, radius: 18)
+            PosterView(urls: m.thumbCandidates, radius: 18, rateKey: RateStore.key(item.kind, m.id))
                 .overlay(alignment: .topTrailing) {
                     if let s = m.scoreText { ScoreBadge(text: s).padding(8) }
                 }
@@ -406,7 +406,7 @@ struct RoleGroupCard: View {
                 ForEach(animes.prefix(3), id: \.id) { a in
                     NavigationLink { TitleView(ref: MediaRef(id: a.id, kind: .anime)) } label: {
                         HStack(spacing: 10) {
-                            PosterView(urls: a.thumbCandidates, radius: 8).frame(width: 40)
+                            PosterView(urls: a.thumbCandidates, radius: 8, rateKey: RateStore.key(.anime, a.id)).frame(width: 40)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(a.title).font(.footnote.weight(.semibold))
                                     .lineLimit(2).multilineTextAlignment(.leading)

@@ -173,47 +173,6 @@ final class FilterData: ObservableObject {
     }
 }
 
-/// Отдельная страница с поиском для длинных списков (студии, издатели).
-struct NamedPickerPage: View {
-    let title: String
-    let items: [ExtraNamed]
-    @Binding var selection: Set<Int>
-    @State private var search = ""
-
-    var body: some View {
-        let query = search.trimmingCharacters(in: .whitespaces).lowercased()
-        let list = items.filter { query.isEmpty || ($0.name ?? "").lowercased().contains(query) }
-        List {
-            if items.isEmpty { Text("Загрузка…").foregroundStyle(.secondary) }
-            ForEach(list, id: \.id) { item in
-                if let id = item.intID {
-                    Button {
-                        if selection.contains(id) { selection.remove(id) } else { selection.insert(id) }
-                    } label: {
-                        HStack {
-                            Text(item.name ?? "").foregroundStyle(.primary)
-                            Spacer()
-                            if selection.contains(id) { Image(systemName: "checkmark").foregroundStyle(Theme.accent) }
-                        }
-                    }
-                }
-            }
-        }
-        .navigationTitle(title)
-        .navigationBarTitleDisplayMode(.inline)
-        .searchable(text: $search, prompt: "Поиск")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("Сбросить") {
-                    let ids = Set(items.compactMap(\.intID))
-                    selection.subtract(ids)
-                }
-                .disabled(selection.isDisjoint(with: Set(items.compactMap(\.intID))))
-            }
-        }
-    }
-}
-
 /// Строка «название — выбранное значение» с выпадающим меню iOS.
 private struct MenuRow<Content: View>: View {
     let title: String
@@ -240,45 +199,6 @@ private struct MenuRow<Content: View>: View {
             Image(systemName: "chevron.up.chevron.down").font(.footnote)
         }
         .foregroundStyle(summary.isEmpty ? Color.secondary : Theme.accent)
-    }
-}
-
-/// Выбор периода: слева «с», справа «по», годы листаются барабанами.
-private struct YearRangePage: View {
-    @Binding var from: Int
-    @Binding var to: Int
-
-    private var years: [Int] {
-        let current = Calendar.current.component(.year, from: Date()) + 1
-        return Array((1960...current).reversed())
-    }
-
-    var body: some View {
-        VStack(spacing: 12) {
-            HStack {
-                Text("С").font(.headline).frame(maxWidth: .infinity)
-                Text("По").font(.headline).frame(maxWidth: .infinity)
-            }
-            HStack(spacing: 0) {
-                wheel($from)
-                wheel($to)
-            }
-            Button("Сбросить годы") { from = 0; to = 0 }
-                .disabled(from == 0 && to == 0)
-            Spacer()
-        }
-        .padding(.top, 20)
-        .navigationTitle("Годы")
-        .navigationBarTitleDisplayMode(.inline)
-    }
-
-    private func wheel(_ value: Binding<Int>) -> some View {
-        Picker("", selection: value) {
-            Text(verbatim: "Не важно").tag(0)
-            ForEach(years, id: \.self) { Text(verbatim: String($0)).tag($0) }
-        }
-        .pickerStyle(.wheel)
-        .frame(maxWidth: .infinity)
     }
 }
 
@@ -323,14 +243,15 @@ struct CatalogFiltersView: View {
         }
     }
 
-    /// Длинные списки (жанры, темы, студии) открываются отдельной страницей с поиском: так список не прыгает.
-    private func pageRow(_ title: String, items: [ExtraNamed], selection: Binding<Set<Int>>) -> some View {
-        let ids = Set(items.compactMap(\.intID))
-        let chosen = items.filter { $0.intID.map { selection.wrappedValue.contains($0) } ?? false }
+    /// Длинные списки (жанры и теги, студии) открываются отдельным экраном с поиском.
+    private func pageRow(_ title: String, groups: [ChoiceGroup], selection: Binding<Set<Int>>) -> some View {
+        let all = groups.flatMap(\.items)
+        let ids = Set(all.compactMap(\.intID))
+        let chosen = all.filter { $0.intID.map { selection.wrappedValue.contains($0) } ?? false }
         let count = selection.wrappedValue.intersection(ids).count
         let text = count == 1 ? (chosen.first?.name ?? "1") : (count == 0 ? "" : "Выбрано: \(count)")
         return NavigationLink {
-            NamedPickerPage(title: title, items: items, selection: selection)
+            FilterChoicePage(title: title, groups: groups, selection: selection)
         } label: {
             HStack {
                 Text(verbatim: title)
@@ -338,6 +259,25 @@ struct CatalogFiltersView: View {
                 Text(verbatim: text.isEmpty ? "Не важно" : text)
                     .lineLimit(1)
                     .foregroundStyle(text.isEmpty ? Color.secondary : Theme.accent)
+            }
+        }
+    }
+
+    /// Короткий список (аудитория): обычное меню iOS с отметками.
+    private func idMenu(_ title: String, items: [ExtraNamed], selection: Binding<Set<Int>>) -> some View {
+        let ids = Set(items.compactMap(\.intID))
+        let chosen = items.filter { $0.intID.map { selection.wrappedValue.contains($0) } ?? false }
+        let count = selection.wrappedValue.intersection(ids).count
+        let text = count == 1 ? (chosen.first?.name ?? "1") : (count == 0 ? "" : "Выбрано: \(count)")
+        return MenuRow(title: title, summary: text) {
+            ForEach(items, id: \.id) { item in
+                if let id = item.intID {
+                    Toggle(item.name ?? "", isOn: Binding(
+                        get: { selection.wrappedValue.contains(id) },
+                        set: { on in
+                            if on { selection.wrappedValue.insert(id) } else { selection.wrappedValue.remove(id) }
+                        }))
+                }
             }
         }
     }
@@ -351,6 +291,14 @@ struct CatalogFiltersView: View {
     var body: some View {
         NavigationStack {
             Form {
+                let chips = draft.chips(kind: kind, genres: data.genres, studios: data.studios, publishers: data.publishers)
+                if !chips.isEmpty {
+                    Section {
+                        FilterChipsBar(chips: chips, filters: $draft)
+                    }
+                    .listRowBackground(Color.clear)
+                    .listRowInsets(EdgeInsets())
+                }
                 let orders = CatalogOptions.orders(for: kind)
                 MenuRow(title: "Сортировка", summary: orders.first { $0.0 == draft.order }?.1 ?? "", multi: false) {
                     Picker("Сортировка", selection: $draft.order) {
@@ -364,10 +312,12 @@ struct CatalogFiltersView: View {
                 if !kinds.isEmpty { multi("Тип", kinds, \.kinds) }
                 if kind == .anime { multi("Количество серий", CatalogOptions.episodeCounts, \.kinds) }
 
-                pageRow("Жанры", items: genreItems("genre"), selection: $draft.genreIDs)
-                pageRow("Темы", items: genreItems("theme"), selection: $draft.genreIDs)
+                pageRow("Жанры и теги",
+                        groups: [ChoiceGroup(title: "Жанры", items: genreItems("genre")),
+                                 ChoiceGroup(title: "Теги", items: genreItems("theme"))],
+                        selection: $draft.genreIDs)
                 if data.genres.contains(where: { $0.kind == "demographic" }) {
-                    pageRow("Аудитория", items: genreItems("demographic"), selection: $draft.genreIDs)
+                    idMenu("Аудитория", items: genreItems("demographic"), selection: $draft.genreIDs)
                 }
 
                 multi("Сезон", CatalogOptions.seasons(), \.seasons)
@@ -388,9 +338,9 @@ struct CatalogFiltersView: View {
                     multi("Длительность серии", CatalogOptions.durations, \.durations)
                     multi("Возрастной рейтинг", CatalogOptions.ratings, \.ratings)
                     multi("Первоисточник", CatalogOptions.origins, \.origins)
-                    pageRow("Студия", items: data.studios, selection: $draft.studioIDs)
+                    pageRow("Студия", groups: [ChoiceGroup(title: "Студии", items: data.studios)], selection: $draft.studioIDs)
                 } else {
-                    pageRow("Издатель", items: data.publishers, selection: $draft.publisherIDs)
+                    pageRow("Издатель", groups: [ChoiceGroup(title: "Издатели", items: data.publishers)], selection: $draft.publisherIDs)
                 }
 
                 MenuRow(title: "Оценка не ниже", summary: draft.minScore > 0 ? String(draft.minScore) : "", multi: false) {

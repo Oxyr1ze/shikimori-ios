@@ -4,6 +4,7 @@ import SwiftUI
 final class CatalogModel: ObservableObject {
     @Published var kind: MediaKind = .anime
     @Published var filters = CatalogFilters()
+    @Published var query = ""
     @Published var items: [Media] = []
     @Published var loading = false
     @Published var error: String?
@@ -28,7 +29,7 @@ final class CatalogModel: ObservableObject {
         let gen = generation
         do {
             let result = try await AuthManager.shared.media(
-                kind: kind, order: filters.order,
+                kind: kind, order: filters.order, search: query.trimmingCharacters(in: .whitespaces),
                 filters: filters.queryItems(kind: kind), page: page, limit: 24)
             guard gen == generation else { loading = false; return }
             let known = Set(items.map(\.id))
@@ -43,6 +44,11 @@ final class CatalogModel: ObservableObject {
     }
 }
 
+private struct SearchKey: Equatable {
+    let filters: CatalogFilters
+    let query: String
+}
+
 struct CatalogView: View {
     @StateObject private var model = CatalogModel()
     @StateObject private var data = FilterData()
@@ -50,6 +56,7 @@ struct CatalogView: View {
     @State private var randomRef: MediaRef?
     @State private var randomBusy = false
     @State private var applied = CatalogFilters()
+    @State private var appliedQuery = ""
     private let columns = [GridItem(.flexible(), spacing: 14), GridItem(.flexible(), spacing: 14)]
 
     private func openRandom() async {
@@ -58,7 +65,7 @@ struct CatalogView: View {
         defer { randomBusy = false }
         let kind = model.kind
         if let list = try? await AuthManager.shared.media(
-            kind: kind, order: "random", filters: model.filters.queryItems(kind: kind), page: 1, limit: 1),
+            kind: kind, order: "random", search: model.query.trimmingCharacters(in: .whitespaces), filters: model.filters.queryItems(kind: kind), page: 1, limit: 1),
            let first = list.first {
             randomRef = MediaRef(id: first.id, kind: kind)
         }
@@ -73,11 +80,16 @@ struct CatalogView: View {
                     }
                     .pickerStyle(.segmented)
 
+                    FilterChipsBar(
+                        chips: model.filters.chips(kind: model.kind, genres: data.genres,
+                                                   studios: data.studios, publishers: data.publishers),
+                        filters: $model.filters, horizontalInset: 20)
+
                     LazyVGrid(columns: columns, spacing: 14) {
                         ForEach(model.items) { item in
                             NavigationLink(value: MediaRef(id: item.id, kind: model.kind)) {
                                 VStack(alignment: .leading, spacing: 8) {
-                                    PosterView(urls: item.thumbCandidates, radius: 22)
+                                    PosterView(urls: item.thumbCandidates, radius: 22, rateKey: RateStore.key(model.kind, item.id))
                                         .overlay(alignment: .topTrailing) {
                                             if let s = item.scoreText { ScoreBadge(text: s).padding(8) }
                                         }
@@ -85,6 +97,13 @@ struct CatalogView: View {
                                         .font(.subheadline.weight(.semibold))
                                         .lineLimit(2)
                                         .multilineTextAlignment(.leading)
+                                    if let sub = item.subtitleText {
+                                        Text(sub)
+                                            .font(.caption)
+                                            .foregroundStyle(.secondary)
+                                            .lineLimit(1)
+                                            .padding(.top, -4)
+                                    }
                                 }
                             }
                             .buttonStyle(.plain)
@@ -96,6 +115,11 @@ struct CatalogView: View {
                     if let message = model.error {
                         ErrorBanner(message: message) { Task { await model.loadMore() } }
                     }
+                    if !model.loading && model.error == nil && model.items.isEmpty && !applied.isEmpty || (!model.loading && model.items.isEmpty && !model.query.isEmpty && model.error == nil) {
+                        ContentUnavailableView("Ничего не найдено", systemImage: "magnifyingglass",
+                                               description: Text("Измените запрос или уберите часть фильтров"))
+                            .padding(.top, 20)
+                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 8)
@@ -103,6 +127,7 @@ struct CatalogView: View {
             }
             .background(AppBackground())
             .navigationTitle("Каталог")
+            .searchable(text: $model.query, prompt: "Поиск в каталоге")
             .navigationDestination(for: MediaRef.self) { TitleView(ref: $0) }
             .task { if model.items.isEmpty { await model.reload() } }
             .toolbar {
@@ -128,12 +153,13 @@ struct CatalogView: View {
                     .presentationDetents([.large])
             }
             .task(id: model.kind) { await data.load(kind: model.kind) }
-            .task(id: model.filters) {
-                // Небольшая пауза: пока человек отмечает пункты в меню, список не перестраивается
-                try? await Task.sleep(nanoseconds: 300_000_000)
+            .task(id: SearchKey(filters: model.filters, query: model.query)) {
+                // Небольшая пауза: пока человек отмечает пункты в меню или печатает, список не перестраивается
+                try? await Task.sleep(nanoseconds: 400_000_000)
                 if Task.isCancelled { return }
-                if applied != model.filters {
+                if applied != model.filters || appliedQuery != model.query {
                     applied = model.filters
+                    appliedQuery = model.query
                     await model.reload()
                 }
             }
