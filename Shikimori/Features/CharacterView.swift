@@ -353,21 +353,7 @@ struct WorkCard: View {
     var width: CGFloat? = nil
 
     var body: some View {
-        let m = item.media
-        VStack(alignment: .leading, spacing: 6) {
-            PosterView(urls: m.thumbCandidates, radius: 18, rateKey: RateStore.key(item.kind, m.id))
-                .overlay(alignment: .topTrailing) {
-                    if let s = m.scoreText { ScoreBadge(text: s).padding(8) }
-                }
-            Text(m.title).font(.subheadline.weight(.semibold)).lineLimit(2).multilineTextAlignment(.leading)
-            if let role = item.role, !role.isEmpty {
-                Text(role).font(.caption).foregroundStyle(Theme.accent).lineLimit(2).multilineTextAlignment(.leading)
-            }
-            Text([m.kind.map(kindTitle), m.yearText].compactMap { $0 }.joined(separator: " · "))
-                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-        }
-        .frame(width: width, alignment: .topLeading)
-        .frame(maxWidth: width == nil ? .infinity : nil, alignment: .topLeading)
+        TitleCard(media: item.media, kind: item.kind, width: width, role: item.role)
     }
 }
 

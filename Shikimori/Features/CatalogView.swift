@@ -80,31 +80,10 @@ struct CatalogView: View {
                     }
                     .pickerStyle(.segmented)
 
-                    FilterChipsBar(
-                        chips: model.filters.chips(kind: model.kind, genres: data.genres,
-                                                   studios: data.studios, publishers: data.publishers),
-                        filters: $model.filters, horizontalInset: 20)
-
                     LazyVGrid(columns: columns, spacing: 14) {
                         ForEach(model.items) { item in
                             NavigationLink(value: MediaRef(id: item.id, kind: model.kind)) {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    PosterView(urls: item.thumbCandidates, radius: 22, rateKey: RateStore.key(model.kind, item.id))
-                                        .overlay(alignment: .topTrailing) {
-                                            if let s = item.scoreText { ScoreBadge(text: s).padding(8) }
-                                        }
-                                    Text(item.title)
-                                        .font(.subheadline.weight(.semibold))
-                                        .lineLimit(2)
-                                        .multilineTextAlignment(.leading)
-                                    if let sub = item.subtitleText {
-                                        Text(sub)
-                                            .font(.caption)
-                                            .foregroundStyle(.secondary)
-                                            .lineLimit(1)
-                                            .padding(.top, -4)
-                                    }
-                                }
+                                TitleCard(media: item, kind: model.kind)
                             }
                             .buttonStyle(.plain)
                             .onAppear { Task { await model.loadMore(after: item) } }

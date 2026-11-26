@@ -128,22 +128,49 @@ struct ScoreBadge: View {
 }
 
 /// Карточка произведения для горизонтальных лент.
-struct MediaCard: View {
+/// Единая карточка тайтла: постер, оценка справа сверху, статус списка справа снизу, название и «тип · год».
+struct TitleCard: View {
     let media: Media
-    var width: CGFloat = 118
+    var kind: MediaKind? = nil
+    var width: CGFloat? = nil
+    var role: String? = nil
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            PosterView(urls: media.thumbCandidates, rateKey: media.rateKey)
-                .frame(width: width, height: width * 1.5)
-                .clipped()
+        let key = kind.map { RateStore.key($0, media.id) } ?? media.rateKey
+        VStack(alignment: .leading, spacing: 6) {
+            Group {
+                if let width {
+                    PosterView(urls: media.thumbCandidates, radius: 20, rateKey: key)
+                        .frame(width: width, height: width * 1.5)
+                } else {
+                    PosterView(urls: media.thumbCandidates, radius: 20, rateKey: key)
+                }
+            }
+            .overlay(alignment: .topTrailing) {
+                if let s = media.scoreText { ScoreBadge(text: s).padding(8) }
+            }
             Text(media.title)
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(2)
                 .multilineTextAlignment(.leading)
-                .frame(width: width, alignment: .leading)
+            if let role, !role.isEmpty {
+                Text(role).font(.caption).foregroundStyle(Theme.accent).lineLimit(2).multilineTextAlignment(.leading)
+            }
+            if let sub = media.subtitleText {
+                Text(sub).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+            }
         }
         .frame(width: width, alignment: .topLeading)
+        .frame(maxWidth: width == nil ? .infinity : nil, alignment: .topLeading)
+    }
+}
+
+struct MediaCard: View {
+    let media: Media
+    var width: CGFloat = 124
+
+    var body: some View {
+        TitleCard(media: media, width: width)
     }
 }
 

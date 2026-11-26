@@ -1,116 +1,5 @@
 import SwiftUI
 
-// MARK: Плашки включённых фильтров
-
-struct FilterChip: Identifiable {
-    let id: String
-    let title: String
-    let remove: (inout CatalogFilters) -> Void
-}
-
-extension CatalogFilters {
-    /// По одной плашке на каждое включённое значение, чтобы любое можно было убрать крестиком.
-    func chips(kind: MediaKind, genres: [GQLGenre], studios: [ExtraNamed], publishers: [ExtraNamed]) -> [FilterChip] {
-        var list: [FilterChip] = []
-
-        if order != CatalogFilters.defaultOrder,
-           let name = CatalogOptions.orders(for: kind).first(where: { $0.0 == order })?.1 {
-            list.append(FilterChip(id: "order", title: name) { $0.order = CatalogFilters.defaultOrder })
-        }
-
-        func each(_ id: String, _ options: [(String, String)], _ value: Set<String>,
-                  _ key: WritableKeyPath<CatalogFilters, Set<String>>) {
-            for option in options where value.contains(option.0) {
-                list.append(FilterChip(id: "\(id)-\(option.0)", title: option.1) { $0[keyPath: key].remove(option.0) })
-            }
-        }
-        each("mylist", CatalogOptions.myList(for: kind), myList, \.myList)
-        each("status", CatalogOptions.statuses(for: kind), statuses, \.statuses)
-        each("kind", CatalogOptions.kinds(for: kind) + (kind == .anime ? CatalogOptions.episodeCounts : []), kinds, \.kinds)
-
-        for g in genres.sorted(by: { $0.display < $1.display }) {
-            if let id = g.intID, genreIDs.contains(id) {
-                list.append(FilterChip(id: "genre-\(id)", title: g.display) { $0.genreIDs.remove(id) })
-            }
-        }
-
-        each("season", CatalogOptions.seasons(), seasons, \.seasons)
-
-        if yearFrom > 0 || yearTo > 0 {
-            let text: String
-            if yearFrom > 0 && yearTo > 0 { text = yearFrom == yearTo ? String(yearFrom) : "\(yearFrom) – \(yearTo)" }
-            else { text = yearFrom > 0 ? "с \(yearFrom)" : "по \(yearTo)" }
-            list.append(FilterChip(id: "years", title: text) { $0.yearFrom = 0; $0.yearTo = 0 })
-        }
-
-        if kind == .anime {
-            each("duration", CatalogOptions.durations, durations, \.durations)
-            each("rating", CatalogOptions.ratings, ratings, \.ratings)
-            each("origin", CatalogOptions.origins, origins, \.origins)
-            for s in studios {
-                if let id = s.intID, studioIDs.contains(id) {
-                    list.append(FilterChip(id: "studio-\(id)", title: s.name ?? "Студия") { $0.studioIDs.remove(id) })
-                }
-            }
-        } else {
-            for p in publishers {
-                if let id = p.intID, publisherIDs.contains(id) {
-                    list.append(FilterChip(id: "publisher-\(id)", title: p.name ?? "Издатель") { $0.publisherIDs.remove(id) })
-                }
-            }
-        }
-
-        if minScore > 0 {
-            list.append(FilterChip(id: "score", title: "Оценка от \(minScore)") { $0.minScore = 0 })
-        }
-        return list
-    }
-}
-
-/// Лента плашек с крестиками и кнопкой «Сбросить всё».
-struct FilterChipsBar: View {
-    let chips: [FilterChip]
-    @Binding var filters: CatalogFilters
-    var horizontalInset: CGFloat = 0
-
-    var body: some View {
-        if !chips.isEmpty {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(chips) { chip in
-                        Button {
-                            withAnimation(.snappy) { chip.remove(&filters) }
-                        } label: {
-                            HStack(spacing: 6) {
-                                Text(verbatim: chip.title).lineLimit(1)
-                                Image(systemName: "xmark").font(.system(size: 10, weight: .bold))
-                            }
-                            .font(.footnote.weight(.semibold))
-                            .padding(.horizontal, 12).padding(.vertical, 8)
-                            .glassEffect(.regular.tint(Theme.accent.opacity(0.28)), in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    if chips.count > 1 {
-                        Button {
-                            withAnimation(.snappy) { filters = CatalogFilters() }
-                        } label: {
-                            Text("Сбросить всё")
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(Theme.accent)
-                                .padding(.horizontal, 12).padding(.vertical, 8)
-                                .glassEffect(.regular, in: Capsule())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, horizontalInset)
-            }
-            .padding(.horizontal, -horizontalInset)
-        }
-    }
-}
-
 // MARK: Общий стиль отдельных экранов
 
 private let pageBackground = Color(UIColor.systemGroupedBackground)
@@ -123,7 +12,7 @@ private struct PageToolbar: ToolbarContent {
     let done: () -> Void
 
     var body: some ToolbarContent {
-        ToolbarItem(placement: .topBarTrailing) {
+        ToolbarItem(placement: .topBarLeading) {
             Button("Очистить", action: clear)
                 .tint(Theme.accent)
                 .disabled(!canClear)
@@ -210,6 +99,7 @@ struct FilterChoicePage: View {
         .background(pageBackground.ignoresSafeArea())
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
         .searchable(text: $search, prompt: "Поиск")
         .toolbar {
             PageToolbar(canClear: !selection.isEmpty, clear: {
@@ -303,6 +193,7 @@ struct YearRangePage: View {
         .background(pageBackground.ignoresSafeArea())
         .navigationTitle("Годы")
         .navigationBarTitleDisplayMode(.inline)
+        .navigationBarBackButtonHidden(true)
         .toolbar {
             PageToolbar(canClear: from != 0 || to != 0, clear: { from = 0; to = 0 }, done: { dismiss() })
         }

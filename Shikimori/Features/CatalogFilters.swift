@@ -291,14 +291,6 @@ struct CatalogFiltersView: View {
     var body: some View {
         NavigationStack {
             Form {
-                let chips = draft.chips(kind: kind, genres: data.genres, studios: data.studios, publishers: data.publishers)
-                if !chips.isEmpty {
-                    Section {
-                        FilterChipsBar(chips: chips, filters: $draft)
-                    }
-                    .listRowBackground(Color.clear)
-                    .listRowInsets(EdgeInsets())
-                }
                 let orders = CatalogOptions.orders(for: kind)
                 MenuRow(title: "Сортировка", summary: orders.first { $0.0 == draft.order }?.1 ?? "", multi: false) {
                     Picker("Сортировка", selection: $draft.order) {
@@ -312,9 +304,9 @@ struct CatalogFiltersView: View {
                 if !kinds.isEmpty { multi("Тип", kinds, \.kinds) }
                 if kind == .anime { multi("Количество серий", CatalogOptions.episodeCounts, \.kinds) }
 
-                pageRow("Жанры и теги",
-                        groups: [ChoiceGroup(title: "Жанры", items: genreItems("genre")),
-                                 ChoiceGroup(title: "Теги", items: genreItems("theme"))],
+                pageRow("Жанры", groups: [ChoiceGroup(title: "Жанры", items: genreItems("genre"))],
+                        selection: $draft.genreIDs)
+                pageRow("Темы", groups: [ChoiceGroup(title: "Темы", items: genreItems("theme"))],
                         selection: $draft.genreIDs)
                 if data.genres.contains(where: { $0.kind == "demographic" }) {
                     idMenu("Аудитория", items: genreItems("demographic"), selection: $draft.genreIDs)

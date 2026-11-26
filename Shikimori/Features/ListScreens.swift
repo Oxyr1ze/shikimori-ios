@@ -116,17 +116,7 @@ struct SimilarScreen: View {
             LazyVGrid(columns: cols, alignment: .leading, spacing: 16) {
                 ForEach(items) { item in
                     NavigationLink { TitleView(ref: MediaRef(id: item.id, kind: kind)) } label: {
-                        VStack(alignment: .leading, spacing: 6) {
-                            PosterView(urls: item.thumbCandidates, radius: 18, rateKey: RateStore.key(kind, item.id))
-                                .overlay(alignment: .topTrailing) {
-                                    if let s = item.scoreText { ScoreBadge(text: s).padding(8) }
-                                }
-                            Text(item.title).font(.subheadline.weight(.semibold))
-                                .lineLimit(2).multilineTextAlignment(.leading)
-                            Text([item.kind.map(kindTitle), item.yearText].compactMap { $0 }.joined(separator: " · "))
-                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .topLeading)
+                        TitleCard(media: item, kind: kind)
                     }
                     .buttonStyle(.plain)
                 }

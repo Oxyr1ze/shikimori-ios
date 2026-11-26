@@ -60,22 +60,35 @@ final class RateStore: ObservableObject {
     }
 }
 
-/// Маленькая отметка статуса в углу постера.
+/// Значок статуса списка: простые белые иконки на стекле, без цвета.
+func rateGlyph(_ raw: String) -> String {
+    switch raw {
+    case "watching": return "play.fill"
+    case "planned": return "bookmark.fill"
+    case "completed": return "checkmark"
+    case "on_hold": return "pause.fill"
+    case "dropped": return "xmark"
+    case "rewatching": return "arrow.triangle.2.circlepath"
+    default: return "circle.fill"
+    }
+}
+
+/// Маленькая отметка статуса в правом нижнем углу постера (Liquid Glass).
 struct RateBadge: View {
     let key: String?
     @ObservedObject private var store = RateStore.shared
 
     var body: some View {
-        if let raw = store.status(key), let st = RateStatus(rawValue: raw) {
+        if let raw = store.status(key) {
             GeometryReader { g in
-                let d = max(16, min(30, g.size.width * 0.2))
-                Image(systemName: st.icon)
-                    .font(.system(size: d))
-                    .symbolRenderingMode(.palette)
-                    .foregroundStyle(.white, listStatusColor(raw))
-                    .shadow(color: .black.opacity(0.45), radius: 2)
-                    .padding(d * 0.3)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                let d = max(20, min(30, g.size.width * 0.22))
+                Image(systemName: rateGlyph(raw))
+                    .font(.system(size: d * 0.46, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: d, height: d)
+                    .glassEffect(.regular, in: Circle())
+                    .padding(max(5, d * 0.28))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             }
             .allowsHitTesting(false)
         }
