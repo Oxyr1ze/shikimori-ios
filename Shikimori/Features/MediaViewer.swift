@@ -7,18 +7,18 @@ struct ViewerState: Identifiable {
     var index: Int
 }
 
-/// Маленькая круглая кнопка закрытия: одинаковая во всех просмотрщиках.
+/// Кнопка закрытия в том же стиле, что и системная кнопка «назад».
 struct ViewerCloseButton: View {
     let action: () -> Void
     var body: some View {
         Button(action: action) {
             Image(systemName: "xmark")
-                .font(.system(size: 14, weight: .bold))
-                .foregroundStyle(.white)
-                .frame(width: 34, height: 34)
+                .font(.system(size: 17, weight: .semibold))
         }
-        .buttonStyle(.plain)
-        .glassEffect(.regular.interactive(), in: .circle)
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
+        .controlSize(.large)
+        .tint(.white)
         .accessibilityLabel("Закрыть")
     }
 }

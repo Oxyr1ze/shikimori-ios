@@ -13,6 +13,7 @@ final class TitleModel: ObservableObject {
     @Published var videos: [VideoItem] = []
     @Published var screenshots: [Screenshot] = []
     @Published var franchise: [FranchiseNode] = []
+    @Published var nodePosters: [Int: PosterURLs] = [:]
 
     func load(_ ref: MediaRef) async {
         self.ref = ref
@@ -28,6 +29,7 @@ final class TitleModel: ObservableObject {
             videos = DiskCache.load([VideoItem].self, key: "videos-\(base)") ?? []
             screenshots = DiskCache.load([Screenshot].self, key: "shots-\(base)") ?? []
             franchise = DiskCache.load([FranchiseNode].self, key: "franchise-\(base)") ?? []
+            nodePosters = DiskCache.load([Int: PosterURLs].self, key: "franchise-posters-\(base)") ?? [:]
         }
         do {
             let fresh = try await AuthManager.shared.detail(ref)
@@ -45,7 +47,15 @@ final class TitleModel: ObservableObject {
             let shots = await AuthManager.shared.screenshots(ref)
             if !shots.isEmpty { screenshots = shots; DiskCache.save(shots, key: "shots-\(base)") }
             let fr = await AuthManager.shared.franchise(ref)
-            if !fr.isEmpty { franchise = fr; DiskCache.save(fr, key: "franchise-\(base)") }
+            if !fr.isEmpty {
+                franchise = fr
+                DiskCache.save(fr, key: "franchise-\(base)")
+                let posters = await AuthManager.shared.posters(kind: ref.kind, ids: fr.map(\.id))
+                if !posters.isEmpty {
+                    nodePosters = posters
+                    DiskCache.save(posters, key: "franchise-posters-\(base)")
+                }
+            }
         } catch is CancellationError {
         } catch {
             self.error = detail == nil ? error.localizedDescription : offlineMessage
@@ -128,6 +138,7 @@ struct TitleView: View {
     @State private var allStaff = false
     @State private var allRelated = false
     @State private var relatedMode = 0
+    @State private var allLinks = false
     @State private var viewer: ViewerState?
     @State private var playing: VideoItem?
     @State private var scrollY: CGFloat = 0
@@ -381,6 +392,7 @@ struct TitleView: View {
                 .font(.system(size: 14, weight: .bold))
                 .foregroundStyle(.primary)
                 .frame(width: 32, height: 32)
+                .contentShape(Circle())
         }
         .buttonStyle(.plain)
         .glassEffect(.regular.interactive(), in: .circle)
@@ -509,8 +521,8 @@ struct TitleView: View {
             if let c = d.chapters, c > 0 { r.append(("Главы", "\(c)")) }
         }
         r.append(("Статус", releaseStatusTitle(d.status)))
-        if let a = d.airedOn, !a.isEmpty { r.append(("Дата начала", ruDate(a))) }
-        if let a = d.releasedOn, !a.isEmpty { r.append(("Дата завершения", ruDate(a))) }
+        r.append(("Дата начала", (d.airedOn ?? "").isEmpty ? "—" : ruDate(d.airedOn ?? "")))
+        r.append(("Дата завершения", (d.releasedOn ?? "").isEmpty ? "—" : ruDate(d.releasedOn ?? "")))
         return r
     }
 
@@ -528,10 +540,6 @@ struct TitleView: View {
             r.append(("Издатель", p.joined(separator: ", ")))
         }
         if let l = e?.licensors, !l.isEmpty { r.append(("Лицензировано", l.joined(separator: ", "))) }
-        if ref.kind == .anime {
-            if let f = e?.fansubbers, !f.isEmpty { r.append(("Субтитры", f.joined(separator: ", "))) }
-            if let f = e?.fandubbers, !f.isEmpty { r.append(("Озвучка", f.joined(separator: ", "))) }
-        }
         return r
     }
 
@@ -559,6 +567,10 @@ struct TitleView: View {
             ForEach(Array(wide.enumerated()), id: \.offset) { _, f in tile(f.0, f.1) }
             chipsCard("Темы", (model.extras?.genres ?? []).filter { $0.kind == "theme" }.map(\.display))
             chipsCard("Аудитория", (model.extras?.genres ?? []).filter { $0.kind == "demographic" }.map(\.display))
+            if ref.kind == .anime {
+                ExpandableChipsCard(label: "Субтитры", names: model.extras?.fansubbers ?? [])
+                ExpandableChipsCard(label: "Озвучка", names: model.extras?.fandubbers ?? [])
+            }
 
             let alts = alternativeList(d)
             if !alts.isEmpty {
@@ -581,25 +593,68 @@ struct TitleView: View {
         }
     }
 
+    private func linkIcon(_ kind: String) -> String {
+        switch kind {
+        case "official_site": return "globe"
+        case "wikipedia": return "text.book.closed"
+        case "anime_news_network": return "newspaper"
+        case "twitter": return "bubble.left"
+        case "kinopoisk", "kinopoisk_hd": return "film"
+        case "myanimelist", "anime_db", "world_art", "mangaupdates", "novelupdates": return "list.bullet.rectangle"
+        case "smotret_anime": return "play.rectangle"
+        default: return "link"
+        }
+    }
+
     @ViewBuilder
     private var externalLinks: some View {
-        let links = (model.extras?.externalLinks ?? []).compactMap { l -> (String, URL)? in
+        let links = (model.extras?.externalLinks ?? []).compactMap { l -> (kind: String, url: URL)? in
             guard let k = l.kind, let u = l.url, let url = URL(string: u) else { return nil }
-            return (SiteLabels.linkTitle(k), url)
+            return (k, url)
         }
         if !links.isEmpty {
+            let shown = allLinks ? links : Array(links.prefix(5))
             VStack(alignment: .leading, spacing: 10) {
                 sectionTitle("Ссылки")
-                FlowLayout(spacing: 8) {
-                    ForEach(Array(links.enumerated()), id: \.offset) { _, link in
-                        Link(destination: link.1) {
-                            Label(link.0, systemImage: "arrow.up.right")
-                                .font(.footnote.weight(.semibold))
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 7)
-                                .glassEffect(.regular, in: .capsule)
+                VStack(spacing: 0) {
+                    ForEach(Array(shown.enumerated()), id: \.offset) { i, link in
+                        Link(destination: link.url) {
+                            HStack(spacing: 12) {
+                                Image(systemName: linkIcon(link.kind))
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundStyle(Theme.accent)
+                                    .frame(width: 34, height: 34)
+                                    .background(Theme.accent.opacity(0.14), in: Circle())
+                                VStack(alignment: .leading, spacing: 1) {
+                                    Text(SiteLabels.linkTitle(link.kind))
+                                        .font(.subheadline.weight(.semibold))
+                                        .foregroundStyle(.primary)
+                                    Text((link.url.host ?? "").replacingOccurrences(of: "www.", with: ""))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer(minLength: 0)
+                                Image(systemName: "arrow.up.right")
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(.secondary)
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 9)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        if i < shown.count - 1 {
+                            Divider().padding(.leading, 58)
                         }
                     }
+                }
+                .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                if links.count > 5 {
+                    Button(allLinks ? "Свернуть" : "Показать все (\(links.count))") {
+                        withAnimation { allLinks.toggle() }
+                    }
+                    .font(.subheadline.weight(.semibold))
+                    .frame(maxWidth: .infinity)
                 }
             }
         }
@@ -626,7 +681,7 @@ struct TitleView: View {
                 }
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 8) {
-                        ForEach(Array(shots.prefix(20).enumerated()), id: \.offset) { i, shot in
+                        ForEach(Array(shots.prefix(10).enumerated()), id: \.offset) { i, shot in
                             Button {
                                 viewer = ViewerState(images: all, index: i)
                             } label: {
@@ -665,7 +720,7 @@ struct TitleView: View {
                 }
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 10) {
-                        ForEach(list.prefix(15)) { v in
+                        ForEach(list.prefix(5)) { v in
                             Button { playing = v } label: { VideoCard(video: v, width: 190) }
                                 .buttonStyle(.plain)
                         }
@@ -756,6 +811,17 @@ struct TitleView: View {
 
     // MARK: Вкладка «Связи»
 
+    private func nodePoster(_ node: FranchiseNode) -> [URL] {
+        var urls: [URL] = []
+        if let p = model.nodePosters[node.id] {
+            var m = Media(id: node.id, name: node.name ?? "")
+            m.posterURLs = p
+            urls = m.thumbCandidates
+        }
+        if let u = node.imageURL { urls.append(u) }
+        return urls
+    }
+
     private var chronology: [FranchiseNode] {
         model.franchise.sorted { ($0.date ?? 0, $0.id) < ($1.date ?? 0, $1.id) }
     }
@@ -803,13 +869,13 @@ struct TitleView: View {
                         let current = node.id == ref.id
                         let sub = [node.kind, node.year.map { String($0) }].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
                         if current {
-                            relatedRow(poster: [node.imageURL].compactMap { $0 }, badge: "Вы здесь",
+                            relatedRow(poster: nodePoster(node), badge: "Вы здесь",
                                        title: node.name ?? "", subtitle: sub, current: true)
                         } else {
                             NavigationLink {
                                 TitleView(ref: MediaRef(id: node.id, kind: node.mediaKind))
                             } label: {
-                                relatedRow(poster: [node.imageURL].compactMap { $0 }, badge: nil,
+                                relatedRow(poster: nodePoster(node), badge: nil,
                                            title: node.name ?? "", subtitle: sub)
                             }
                             .buttonStyle(.plain)
@@ -835,7 +901,8 @@ struct TitleView: View {
                             } label: {
                                 relatedRow(poster: item.media.thumbCandidates, badge: item.relation,
                                            title: item.media.title,
-                                           subtitle: item.media.kind.map { kindTitle($0) })
+                                           subtitle: [item.media.kind.map { kindTitle($0) }, item.year.map { String($0) }]
+                                               .compactMap { $0 }.joined(separator: " · "))
                             }
                             .buttonStyle(.plain)
                         }
@@ -923,5 +990,52 @@ struct TitleView: View {
             }
         }
         .frame(height: 130, alignment: .bottom)
+    }
+}
+
+
+/// Блок с названиями-«таблетками»: показывается несколько, остальные по кнопке «Ещё».
+struct ExpandableChipsCard: View {
+    let label: String
+    let names: [String]
+    var limit = 6
+    @State private var open = false
+
+    var body: some View {
+        if !names.isEmpty {
+            let shown = open ? names : Array(names.prefix(limit))
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text(label).font(.caption).foregroundStyle(.secondary)
+                    Spacer()
+                    Text("\(names.count)").font(.caption).foregroundStyle(.secondary)
+                }
+                FlowLayout(spacing: 6) {
+                    ForEach(Array(shown.enumerated()), id: \.offset) { _, n in
+                        Text(n)
+                            .font(.footnote.weight(.semibold))
+                            .padding(.horizontal, 11)
+                            .padding(.vertical, 6)
+                            .background(Color(UIColor.tertiarySystemFill), in: Capsule())
+                    }
+                    if names.count > limit {
+                        Button {
+                            withAnimation(.easeInOut(duration: 0.2)) { open.toggle() }
+                        } label: {
+                            Text(open ? "Свернуть" : "Ещё \(names.count - limit)")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(Theme.accent)
+                                .padding(.horizontal, 11)
+                                .padding(.vertical, 6)
+                                .background(Theme.accent.opacity(0.14), in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(12)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
     }
 }

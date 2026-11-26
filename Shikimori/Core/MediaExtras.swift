@@ -54,6 +54,7 @@ struct RelatedItem: Codable, Hashable, Identifiable {
     var relation: String
     var media: Media
     var kindRaw: String
+    var year: Int? = nil
     var id: String { "\(kindRaw)-\(media.id)" }
     var ref: MediaRef { MediaRef(id: media.id, kind: MediaKind(rawValue: kindRaw) ?? .anime) }
 }
@@ -73,15 +74,14 @@ enum SiteLabels {
         return map[k] ?? k
     }
 
-    /// Возрастная маркировка по российской системе (соответствие приблизительное).
     static func ageRating(_ k: String) -> String? {
         switch k {
-        case "g": return "0+ (G)"
-        case "pg": return "6+ (PG)"
-        case "pg_13": return "12+ (PG-13)"
-        case "r": return "16+ (R-17)"
-        case "r_plus": return "18+ (R+)"
-        case "rx": return "18+ (Rx, хентай)"
+        case "g": return "G"
+        case "pg": return "PG"
+        case "pg_13": return "PG-13"
+        case "r": return "R-17+"
+        case "r_plus": return "R+"
+        case "rx": return "Rx"
         default: return nil
         }
     }
@@ -141,7 +141,7 @@ extension AuthManager {
     /// Связанное: продолжения, предыстории, адаптации.
     func related(_ ref: MediaRef) async -> [RelatedItem] {
         let field = ref.kind == .anime ? "animes" : "mangas"
-        let sub = "id name russian kind score poster { originalUrl mainUrl previewUrl }"
+        let sub = "id name russian kind score airedOn { year } poster { originalUrl mainUrl previewUrl }"
         let query = "{ \(field)(ids: \"\(ref.id)\", limit: 1) { related { relationText anime { \(sub) } manga { \(sub) } } } }"
         guard let rows = await graphQLRows(query, field: field),
               let list = rows.first?["related"] as? [[String: Any]] else { return [] }
@@ -162,7 +162,8 @@ extension AuthManager {
             }
             var kindRaw = "anime"
             if !isAnime { kindRaw = (m.kind == "light_novel" || m.kind == "novel") ? "ranobe" : "manga" }
-            result.append(RelatedItem(relation: relation, media: m, kindRaw: kindRaw))
+            let year = ((obj["airedOn"] as? [String: Any])?["year"] as? Int)
+            result.append(RelatedItem(relation: relation, media: m, kindRaw: kindRaw, year: year))
         }
         return result
     }
@@ -199,5 +200,27 @@ extension AuthManager {
             return out
         }
         return DiskCache.load([ExtraNamed].self, key: "publishers") ?? []
+    }
+
+    /// Постеры пачкой по номерам (в данных франшизы у новых тайтлов вместо постера заглушка).
+    func posters(kind: MediaKind, ids: [Int]) async -> [Int: PosterURLs] {
+        let field = kind == .anime ? "animes" : "mangas"
+        var result: [Int: PosterURLs] = [:]
+        var index = 0
+        while index < ids.count {
+            let chunk = Array(ids[index..<min(index + 40, ids.count)])
+            index += 40
+            let list = chunk.map(String.init).joined(separator: ",")
+            let query = "{ \(field)(ids: \"\(list)\", limit: 50) { id poster { originalUrl mainUrl previewUrl } } }"
+            guard let rows = await graphQLRows(query, field: field) else { continue }
+            for row in rows {
+                guard let id = Int((row["id"] as? String) ?? ""),
+                      let p = row["poster"] as? [String: Any] else { continue }
+                result[id] = PosterURLs(original: p["originalUrl"] as? String,
+                                        main: p["mainUrl"] as? String,
+                                        preview: p["previewUrl"] as? String)
+            }
+        }
+        return result
     }
 }
