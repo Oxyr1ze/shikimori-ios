@@ -300,168 +300,85 @@ private func ratingKey(_ m: Media) -> Double {
     return v
 }
 
-struct PersonView: View {
-    let id: Int
-    @StateObject private var model = PersonModel()
-    @State private var byDate = false
-    @State private var filter: WorkFilter = .all
-    @State private var allWorks = false
-    @State private var allRoles = false
-    @State private var allGrouped = false
-
-    private let workLimit = 12
-    private let roleLimit = 10
-
-    private func workItems(_ d: PersonDetail) -> [WorkItem] {
-        (d.works ?? []).compactMap { w in
+extension PersonDetail {
+    var workItems: [WorkItem] {
+        (works ?? []).compactMap { w in
             if let a = w.anime { return WorkItem(media: a, kind: .anime, role: w.role) }
             if let m = w.manga { return WorkItem(media: m, kind: m.isRanobe ? .ranobe : .manga, role: w.role) }
             return nil
         }
     }
 
-    private func sortedWorks(_ items: [WorkItem]) -> [WorkItem] {
-        let filtered = items.filter { item in
-            switch filter {
-            case .all: return true
-            case .anime: return item.kind == .anime
-            case .manga: return item.kind == .manga
-            case .ranobe: return item.kind == .ranobe
-            }
-        }
-        return filtered.sorted { a, b in
-            if byDate {
-                if a.media.sortDate != b.media.sortDate { return a.media.sortDate > b.media.sortDate }
-            } else if ratingKey(a.media) != ratingKey(b.media) {
-                return ratingKey(a.media) > ratingKey(b.media)
-            }
-            return a.media.title < b.media.title
-        }
-    }
-
-    private func sortedRoles(_ d: PersonDetail) -> [PersonRoleGroup] {
-        let groups = (d.roles ?? []).filter { !($0.characters ?? []).isEmpty || !($0.animes ?? []).isEmpty }
+    /// Группы ролей сэйю (персонажи и аниме), по рейтингу или по дате выхода.
+    func sortedRoleGroups(byDate: Bool) -> [PersonRoleGroup] {
+        let groups = (roles ?? []).filter { !($0.characters ?? []).isEmpty || !($0.animes ?? []).isEmpty }
         func rating(_ g: PersonRoleGroup) -> Double { (g.animes ?? []).map(ratingKey).max() ?? -999 }
         func date(_ g: PersonRoleGroup) -> String { (g.animes ?? []).map(\.sortDate).max() ?? "" }
-        return groups.sorted { a, b in
-            byDate ? date(a) > date(b) : rating(a) > rating(b)
-        }
+        return groups.sorted { a, b in byDate ? date(a) > date(b) : rating(a) > rating(b) }
     }
+}
 
-    private func infoRows(_ d: PersonDetail) -> [InfoRowsCard.Row] {
-        var rows: [InfoRowsCard.Row] = []
-        if let n = d.name, !n.isEmpty, n != d.title { rows.append(.init(label: "По-английски", value: n)) }
-        if let j = d.japanese, !j.isEmpty { rows.append(.init(label: "По-японски", value: j)) }
-        if let b = d.birthOn?.text { rows.append(.init(label: "Дата рождения", value: b)) }
-        if let b = d.deceasedOn?.text { rows.append(.init(label: "Дата смерти", value: b)) }
-        if let w = d.website, !w.isEmpty {
-            let full = w.hasPrefix("http") ? w : "https://" + w
-            let host = URL(string: full)?.host ?? w
-            rows.append(.init(label: "Сайт", value: host.replacingOccurrences(of: "www.", with: ""), link: URL(string: full)))
+func sortWorks(_ items: [WorkItem], byDate: Bool) -> [WorkItem] {
+    items.sorted { a, b in
+        if byDate {
+            if a.media.sortDate != b.media.sortDate { return a.media.sortDate > b.media.sortDate }
+        } else if ratingKey(a.media) != ratingKey(b.media) {
+            return ratingKey(a.media) > ratingKey(b.media)
         }
-        return rows
+        return a.media.title < b.media.title
     }
+}
+
+/// Заголовок раздела со стрелкой: нажатие открывает отдельный экран.
+struct SectionLink<Destination: View>: View {
+    let title: String
+    @ViewBuilder let destination: () -> Destination
 
     var body: some View {
-        ScrollView {
-            if let d = model.detail {
-                content(d)
-                    .padding(20)
-                    .padding(.bottom, 100)
-            } else if let message = model.error {
-                ErrorBanner(message: message) { Task { await model.load(id: id) } }.padding(.top, 40)
-            } else {
-                ProgressView().frame(maxWidth: .infinity).padding(.top, 80)
+        NavigationLink(destination: destination) {
+            HStack(spacing: 6) {
+                Text(title).font(.title3.weight(.bold))
+                Image(systemName: "chevron.right").font(.subheadline.weight(.bold)).foregroundStyle(.secondary)
+                Spacer(minLength: 0)
             }
+            .contentShape(Rectangle())
         }
-        .background(AppBackground())
-        .navigationBarTitleDisplayMode(.inline)
-        .task { if model.detail == nil { await model.load(id: id) } }
+        .buttonStyle(.plain)
     }
+}
 
-    @ViewBuilder
-    private func content(_ d: PersonDetail) -> some View {
-        let items = workItems(d)
-        let works = sortedWorks(items)
-        let roles = sortedRoles(d)
-        let rows = infoRows(d)
-        let grouped = d.groupedRoles?.items ?? []
-        VStack(alignment: .leading, spacing: 20) {
-            PersonHeader(
-                posters: d.posterURLs,
-                title: d.title,
-                others: [],
-                badge: d.jobTitle
-            )
-            if !rows.isEmpty { InfoRowsCard(rows: rows) }
-            if !grouped.isEmpty { groupedCard(grouped) }
+/// Карточка работы: постер с оценкой справа сверху (как в каталоге), название, роль, тип и год.
+struct WorkCard: View {
+    let item: WorkItem
+    var width: CGFloat? = nil
 
-            if !roles.isEmpty || !items.isEmpty {
-                Picker("Сортировка", selection: $byDate) {
-                    Text("По рейтингу").tag(false)
-                    Text("По дате выхода").tag(true)
+    var body: some View {
+        let m = item.media
+        VStack(alignment: .leading, spacing: 6) {
+            PosterView(urls: m.thumbCandidates, radius: 18)
+                .overlay(alignment: .topTrailing) {
+                    if let s = m.scoreText { ScoreBadge(text: s).padding(8) }
                 }
-                .pickerStyle(.segmented)
+            Text(m.title).font(.subheadline.weight(.semibold)).lineLimit(2).multilineTextAlignment(.leading)
+            if let role = item.role, !role.isEmpty {
+                Text(role).font(.caption).foregroundStyle(Theme.accent).lineLimit(2).multilineTextAlignment(.leading)
             }
-
-            if !roles.isEmpty { rolesSection(roles) }
-            if !items.isEmpty { worksSection(items, works) }
-
-            CommentsLink(topicID: d.topicId, title: d.title)
+            Text([m.kind.map(kindTitle), m.yearText].compactMap { $0 }.joined(separator: " · "))
+                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }
+        .frame(width: width, alignment: .topLeading)
+        .frame(maxWidth: width == nil ? .infinity : nil, alignment: .topLeading)
     }
+}
 
-    private func groupedCard(_ grouped: [RoleCount]) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Роли в аниме и манге").font(.title3.weight(.bold))
-            VStack(spacing: 0) {
-                let shown = allGrouped ? grouped : Array(grouped.prefix(6))
-                ForEach(Array(shown.enumerated()), id: \.offset) { i, r in
-                    HStack {
-                        Text(r.name).font(.subheadline)
-                        Spacer(minLength: 8)
-                        Text("\(r.count)").font(.subheadline.weight(.bold))
-                    }
-                    .padding(.vertical, 9)
-                    if i < shown.count - 1 { Divider() }
-                }
-            }
-            .padding(.horizontal, 14)
-            .background(Theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-            if grouped.count > 6 {
-                Button(allGrouped ? "Свернуть" : "Показать все (\(grouped.count))") {
-                    withAnimation { allGrouped.toggle() }
-                }
-                .font(.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity)
-            }
-        }
-    }
+/// Одна группа ролей сэйю: персонажи слева, аниме справа.
+struct RoleGroupCard: View {
+    let group: PersonRoleGroup
 
-    // MARK: Роли сэйю
-
-    private func rolesSection(_ roles: [PersonRoleGroup]) -> some View {
-        let total = roles.reduce(0) { $0 + ($1.characters ?? []).count }
-        let shown = allRoles ? roles : Array(roles.prefix(roleLimit))
-        return VStack(alignment: .leading, spacing: 12) {
-            Text("Роли в аниме (\(total))").font(.title3.weight(.bold))
-            ForEach(Array(shown.enumerated()), id: \.offset) { _, g in
-                roleGroupCard(g)
-            }
-            if roles.count > roleLimit {
-                Button(allRoles ? "Свернуть" : "Показать все (\(roles.count))") {
-                    withAnimation { allRoles.toggle() }
-                }
-                .font(.subheadline.weight(.semibold))
-                .frame(maxWidth: .infinity)
-            }
-        }
-    }
-
-    private func roleGroupCard(_ g: PersonRoleGroup) -> some View {
-        let chars = g.characters ?? []
-        let animes = g.animes ?? []
-        return HStack(alignment: .top, spacing: 12) {
+    var body: some View {
+        let chars = group.characters ?? []
+        let animes = group.animes ?? []
+        HStack(alignment: .top, spacing: 12) {
             VStack(alignment: .leading, spacing: 10) {
                 ForEach(chars.prefix(3), id: \.id) { c in
                     NavigationLink { CharacterView(id: c.id) } label: {
@@ -510,78 +427,235 @@ struct PersonView: View {
         .padding(12)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
     }
+}
 
-    // MARK: Работы
-
-    private func filterChips(_ items: [WorkItem]) -> some View {
-        var options: [WorkFilter] = [.all]
-        if items.contains(where: { $0.kind == .anime }) { options.append(.anime) }
-        if items.contains(where: { $0.kind == .manga }) { options.append(.manga) }
-        if items.contains(where: { $0.kind == .ranobe }) { options.append(.ranobe) }
-        func count(_ f: WorkFilter) -> Int {
-            switch f {
-            case .all: return items.count
-            case .anime: return items.filter { $0.kind == .anime }.count
-            case .manga: return items.filter { $0.kind == .manga }.count
-            case .ranobe: return items.filter { $0.kind == .ranobe }.count
-            }
+struct SortPicker: View {
+    @Binding var byDate: Bool
+    var body: some View {
+        Picker("Сортировка", selection: $byDate) {
+            Text("По рейтингу").tag(false)
+            Text("По дате выхода").tag(true)
         }
-        return ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 8) {
-                ForEach(options, id: \.self) { f in
-                    Button {
-                        withAnimation { filter = f; allWorks = false }
-                    } label: {
-                        Text("\(f.title) \(count(f))")
-                            .font(.subheadline.weight(.semibold))
-                            .padding(.horizontal, 14).padding(.vertical, 8)
-                            .foregroundStyle(filter == f ? Color.white : Color.primary)
-                            .background(filter == f ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Color(UIColor.tertiarySystemFill)), in: Capsule())
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
+        .pickerStyle(.segmented)
+    }
+}
+
+// MARK: Экран «Участие в проектах»
+
+struct PersonWorksScreen: View {
+    @ObservedObject var model: PersonModel
+    @State private var byDate = false
+    @State private var filter: WorkFilter = .all
+
+    private func count(_ items: [WorkItem], _ f: WorkFilter) -> Int {
+        switch f {
+        case .all: return items.count
+        case .anime: return items.filter { $0.kind == .anime }.count
+        case .manga: return items.filter { $0.kind == .manga }.count
+        case .ranobe: return items.filter { $0.kind == .ranobe }.count
         }
     }
 
-    private func worksSection(_ items: [WorkItem], _ works: [WorkItem]) -> some View {
+    private func visible(_ items: [WorkItem]) -> [WorkItem] {
+        let list = items.filter { item in
+            switch filter {
+            case .all: return true
+            case .anime: return item.kind == .anime
+            case .manga: return item.kind == .manga
+            case .ranobe: return item.kind == .ranobe
+            }
+        }
+        return sortWorks(list, byDate: byDate)
+    }
+
+    var body: some View {
+        let items = model.detail?.workItems ?? []
+        let options: [WorkFilter] = [.all, .anime, .manga, .ranobe].filter { $0 == .all || count(items, $0) > 0 }
         let cols = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
-        let shown = allWorks ? works : Array(works.prefix(workLimit))
-        return VStack(alignment: .leading, spacing: 12) {
-            Text("Участие в проектах").font(.title3.weight(.bold))
-            filterChips(items)
-            LazyVGrid(columns: cols, alignment: .leading, spacing: 16) {
-                ForEach(shown) { w in
-                    NavigationLink { TitleView(ref: MediaRef(id: w.media.id, kind: w.kind)) } label: {
-                        workCard(w)
+        ScrollView {
+            VStack(alignment: .leading, spacing: 14) {
+                SortPicker(byDate: $byDate)
+                if options.count > 2 {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(options, id: \.self) { f in
+                                Button { withAnimation { filter = f } } label: {
+                                    Text("\(f.title) \(count(items, f))")
+                                        .font(.subheadline.weight(.semibold))
+                                        .padding(.horizontal, 14).padding(.vertical, 8)
+                                        .foregroundStyle(filter == f ? Color.white : Color.primary)
+                                        .background(filter == f ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Color(UIColor.tertiarySystemFill)), in: Capsule())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
                     }
-                    .buttonStyle(.plain)
+                }
+                LazyVGrid(columns: cols, alignment: .leading, spacing: 16) {
+                    ForEach(visible(items)) { w in
+                        NavigationLink { TitleView(ref: MediaRef(id: w.media.id, kind: w.kind)) } label: {
+                            WorkCard(item: w)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
             }
-            if works.count > workLimit {
-                Button(allWorks ? "Свернуть" : "Показать все (\(works.count))") {
-                    withAnimation { allWorks.toggle() }
+            .padding(20)
+            .padding(.bottom, 100)
+        }
+        .background(AppBackground())
+        .navigationTitle("Участие в проектах")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// MARK: Экран «Роли» сэйю
+
+struct PersonRolesScreen: View {
+    @ObservedObject var model: PersonModel
+    @State private var byDate = false
+
+    var body: some View {
+        let groups = model.detail?.sortedRoleGroups(byDate: byDate) ?? []
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 12) {
+                SortPicker(byDate: $byDate)
+                ForEach(Array(groups.enumerated()), id: \.offset) { _, g in
+                    RoleGroupCard(group: g)
+                }
+            }
+            .padding(20)
+            .padding(.bottom, 100)
+        }
+        .background(AppBackground())
+        .navigationTitle("Роли")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+// MARK: Страница человека
+
+struct PersonView: View {
+    let id: Int
+    @StateObject private var model = PersonModel()
+    @State private var allGrouped = false
+
+    private let previewWorks = 10
+    private let previewRoles = 20
+
+    private func infoRows(_ d: PersonDetail) -> [InfoRowsCard.Row] {
+        var rows: [InfoRowsCard.Row] = []
+        if let b = d.birthOn?.text { rows.append(.init(label: "Дата рождения", value: b)) }
+        if let b = d.deceasedOn?.text { rows.append(.init(label: "Дата смерти", value: b)) }
+        if let w = d.website, !w.isEmpty {
+            let full = w.hasPrefix("http") ? w : "https://" + w
+            let host = URL(string: full)?.host ?? w
+            rows.append(.init(label: "Сайт", value: host.replacingOccurrences(of: "www.", with: ""), link: URL(string: full)))
+        }
+        return rows
+    }
+
+    /// Персонажи, которых озвучил человек (без повторов), лучшие по рейтингу аниме — первыми.
+    private func voiced(_ d: PersonDetail) -> [CastPerson] {
+        var seen = Set<Int>()
+        var result: [CastPerson] = []
+        for group in d.sortedRoleGroups(byDate: false) {
+            for c in group.characters ?? [] where seen.insert(c.id).inserted { result.append(c) }
+        }
+        return result
+    }
+
+    var body: some View {
+        ScrollView {
+            if let d = model.detail {
+                content(d)
+                    .padding(20)
+                    .padding(.bottom, 100)
+            } else if let message = model.error {
+                ErrorBanner(message: message) { Task { await model.load(id: id) } }.padding(.top, 40)
+            } else {
+                ProgressView().frame(maxWidth: .infinity).padding(.top, 80)
+            }
+        }
+        .background(AppBackground())
+        .navigationBarTitleDisplayMode(.inline)
+        .task { if model.detail == nil { await model.load(id: id) } }
+    }
+
+    @ViewBuilder
+    private func content(_ d: PersonDetail) -> some View {
+        let works = sortWorks(d.workItems, byDate: false)
+        let chars = voiced(d)
+        let rows = infoRows(d)
+        let grouped = d.groupedRoles?.items ?? []
+        VStack(alignment: .leading, spacing: 22) {
+            PersonHeader(
+                posters: d.posterURLs,
+                title: d.title,
+                others: uniqueNames([d.name, d.japanese], excluding: d.title),
+                badge: d.jobTitle
+            )
+            if !rows.isEmpty { InfoRowsCard(rows: rows) }
+            if !grouped.isEmpty { groupedCard(grouped) }
+
+            if !chars.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    SectionLink(title: "Роли (\(chars.count))") { PersonRolesScreen(model: model) }
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(alignment: .top, spacing: 14) {
+                            ForEach(chars.prefix(previewRoles), id: \.id) { c in
+                                NavigationLink { CharacterView(id: c.id) } label: { CastAvatar(person: c) }
+                                    .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+            }
+
+            if !works.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    SectionLink(title: "Участие в проектах (\(works.count))") { PersonWorksScreen(model: model) }
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(alignment: .top, spacing: 12) {
+                            ForEach(works.prefix(previewWorks)) { w in
+                                NavigationLink { TitleView(ref: MediaRef(id: w.media.id, kind: w.kind)) } label: {
+                                    WorkCard(item: w, width: 124)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                    }
+                }
+            }
+
+            CommentsLink(topicID: d.topicId, title: d.title)
+        }
+    }
+
+    private func groupedCard(_ grouped: [RoleCount]) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Роли в аниме и манге").font(.title3.weight(.bold))
+            VStack(spacing: 0) {
+                let shown = allGrouped ? grouped : Array(grouped.prefix(6))
+                ForEach(Array(shown.enumerated()), id: \.offset) { i, r in
+                    HStack {
+                        Text(r.name).font(.subheadline)
+                        Spacer(minLength: 8)
+                        Text("\(r.count)").font(.subheadline.weight(.bold))
+                    }
+                    .padding(.vertical, 9)
+                    if i < shown.count - 1 { Divider() }
+                }
+            }
+            .padding(.horizontal, 14)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            if grouped.count > 6 {
+                Button(allGrouped ? "Свернуть" : "Показать все (\(grouped.count))") {
+                    withAnimation { allGrouped.toggle() }
                 }
                 .font(.subheadline.weight(.semibold))
                 .frame(maxWidth: .infinity)
             }
         }
-    }
-
-    private func workCard(_ w: WorkItem) -> some View {
-        let m = w.media
-        return VStack(alignment: .leading, spacing: 6) {
-            PosterView(urls: m.thumbCandidates, radius: 16)
-                .overlay(alignment: .bottomLeading) {
-                    if let s = m.scoreText { ScoreBadge(text: s).padding(8) }
-                }
-            Text(m.title).font(.subheadline.weight(.semibold)).lineLimit(2).multilineTextAlignment(.leading)
-            if let role = w.role, !role.isEmpty {
-                Text(role).font(.caption).foregroundStyle(Theme.accent).lineLimit(2).multilineTextAlignment(.leading)
-            }
-            Text([m.kind.map(kindTitle), m.yearText].compactMap { $0 }.joined(separator: " · "))
-                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-        }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
     }
 }

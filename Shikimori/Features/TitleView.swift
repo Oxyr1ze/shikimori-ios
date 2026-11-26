@@ -798,7 +798,7 @@ struct TitleView: View {
             ForEach(expanded ? list : Array(list.prefix(limit))) { role in
                 if let c = role.character {
                     NavigationLink { CharacterView(id: c.id) } label: {
-                        personCell(c, subtitle: main ? "Главный герой" : "Второстепенный", accent: main)
+                        personCell(c, subtitle: nil)
                     }
                     .buttonStyle(.plain)
                 }
