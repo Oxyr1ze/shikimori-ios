@@ -1,0 +1,25 @@
+name: Shikimori
+options:
+  bundleIdPrefix: app.panda1248
+  deploymentTarget:
+    iOS: "26.0"
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MARKETING_VERSION: "0.4.5"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  Shikimori:
+    type: application
+    platform: iOS
+    sources: [Shikimori]
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.panda1248.maroon8441
+        PRODUCT_NAME: Shikimori
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: Shikimori
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: UIInterfaceOrientationPortrait
+        TARGETED_DEVICE_FAMILY: "1"
