@@ -381,6 +381,18 @@ final class AuthManager: ObservableObject {
     }
 
     /// Настоящие постеры через GraphQL. При любой ошибке просто возвращаем пусто: тогда используются адреса из REST.
+    /// Те же номера, но в порядке популярности на сайте (самые популярные первыми). Не больше 50 за раз.
+    func popularityOrder(kind: MediaKind, ids: [Int]) async -> [Int] {
+        guard !ids.isEmpty else { return [] }
+        let q = [
+            URLQueryItem(name: "ids", value: ids.prefix(50).map(String.init).joined(separator: ",")),
+            URLQueryItem(name: "order", value: "popularity"),
+            URLQueryItem(name: "limit", value: "50")
+        ]
+        let list: [Media]? = try? await get("/api/\(kind.path)", query: q)
+        return list?.map(\.id) ?? []
+    }
+
     func fetchPosters(ids: [Int], kind: MediaKind) async -> [Int: PosterURLs] {
         var result: [Int: PosterURLs] = [:]
         var missing: [Int] = []

@@ -170,9 +170,6 @@ struct TitleView: View {
     @StateObject private var model = TitleModel()
     @State private var tab: TitleTab = .info
     @State private var descOpen = false
-    @State private var allCharacters = false
-    @State private var allSupporting = false
-    @State private var allStaff = false
     @State private var allRelated = false
     @State private var relatedMode = 0
     @State private var allLinks = false
@@ -240,8 +237,7 @@ struct TitleView: View {
             case .ratings: ratingsTab(d)
             }
             if tab != .ratings {
-                MediaRow(title: "Похожее", items: model.similar, kind: ref.kind)
-                    .padding(.horizontal, -20)
+                similarBlock
             }
             if let message = model.error {
                 Text(message).font(.footnote).foregroundStyle(.red)
@@ -480,6 +476,29 @@ struct TitleView: View {
         .background(Theme.card, in: Capsule())
     }
 
+    @ViewBuilder
+    private var similarBlock: some View {
+        if !model.similar.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                SectionLink(title: "Похожее (\(model.similar.count))") {
+                    SimilarScreen(items: model.similar, kind: ref.kind)
+                }
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(alignment: .top, spacing: 12) {
+                        ForEach(model.similar.prefix(12)) { item in
+                            NavigationLink { TitleView(ref: MediaRef(id: item.id, kind: ref.kind)) } label: {
+                                MediaCard(media: item)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                }
+                .padding(.horizontal, -20)
+            }
+        }
+    }
+
     private func sectionTitle(_ t: String) -> some View {
         Text(t).font(.title3.weight(.bold))
     }
@@ -703,18 +722,8 @@ struct TitleView: View {
         if !shots.isEmpty {
             let all = shots.map { [$0.originalURL, $0.previewURL].compactMap { $0 } }
             VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    sectionTitle("Кадры")
-                    Spacer()
-                    NavigationLink {
-                        ScreenshotsPage(title: d.title, shots: shots)
-                    } label: {
-                        HStack(spacing: 4) {
-                            Text("Все (\(shots.count))")
-                            Image(systemName: "chevron.right").font(.caption.weight(.bold))
-                        }
-                        .font(.subheadline.weight(.semibold))
-                    }
+                SectionLink(title: "Кадры (\(shots.count))") {
+                    ScreenshotsPage(title: d.title, shots: shots)
                 }
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(spacing: 8) {
@@ -742,18 +751,8 @@ struct TitleView: View {
         let list = model.videos.filter { $0.playerURL != nil }
         if !list.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    sectionTitle("Видео")
-                    Spacer()
-                    NavigationLink {
-                        VideosPage(title: d.title, videos: list)
-                    } label: {
-                        HStack(spacing: 4) {
-                            Text("Все (\(list.count))")
-                            Image(systemName: "chevron.right").font(.caption.weight(.bold))
-                        }
-                        .font(.subheadline.weight(.semibold))
-                    }
+                SectionLink(title: "Видео (\(list.count))") {
+                    VideosPage(title: d.title, videos: list)
                 }
                 ScrollView(.horizontal, showsIndicators: false) {
                     LazyHStack(alignment: .top, spacing: 10) {
@@ -771,101 +770,40 @@ struct TitleView: View {
 
     // MARK: Вкладка «Люди»
 
-    private func personCell(_ p: CastPerson, subtitle: String?, accent: Bool = false) -> some View {
-        HStack(spacing: 10) {
-            Color(UIColor.tertiarySystemFill)
-                .frame(width: 54, height: 54)
-                .overlay { RemoteImage(urls: p.imageURLs) }
-                .clipShape(Circle())
-            VStack(alignment: .leading, spacing: 2) {
-                Text(p.title).font(.subheadline.weight(.semibold)).lineLimit(2).multilineTextAlignment(.leading)
-                if let subtitle, !subtitle.isEmpty {
-                    Text(subtitle).font(.caption.weight(accent ? .semibold : .regular))
-                        .foregroundStyle(accent ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(.secondary))
-                        .lineLimit(2).multilineTextAlignment(.leading)
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-    }
-
-    private func characterGrid(_ list: [Role], expanded: Bool, limit: Int, main: Bool) -> some View {
-        let cols = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
-        return LazyVGrid(columns: cols, spacing: 10) {
-            ForEach(expanded ? list : Array(list.prefix(limit))) { role in
-                if let c = role.character {
-                    NavigationLink { CharacterView(id: c.id) } label: {
-                        personCell(c, subtitle: nil)
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-        }
-    }
-
     @ViewBuilder
     private var peopleTab: some View {
-        let chars = model.roles.filter { $0.character != nil }
-        // сначала главные герои, потом второстепенные (порядок внутри групп как на сайте)
-        let mainChars = chars.filter { $0.isMain }
-        let otherChars = chars.filter { !$0.isMain }
-        let staff = model.roles.filter { $0.person != nil }
-            .enumerated()
-            .sorted { ($0.element.staffRank, $0.offset) < ($1.element.staffRank, $1.offset) }
-            .map(\.element)
+        let chars = model.roles.allCharactersSorted
+        let staff = model.roles.staffSorted
         let cols = [GridItem(.flexible(), spacing: 10), GridItem(.flexible(), spacing: 10)]
         VStack(alignment: .leading, spacing: 18) {
             if chars.isEmpty && staff.isEmpty {
                 Text("Данных о персонажах и создателях пока нет").font(.footnote).foregroundStyle(.secondary)
             }
-            if !mainChars.isEmpty {
+            if !chars.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
-                    sectionTitle(otherChars.isEmpty ? "Персонажи" : "Главные герои")
-                    characterGrid(mainChars, expanded: allCharacters, limit: 8, main: true)
-                    if mainChars.count > 8 {
-                        Button(allCharacters ? "Свернуть" : "Показать всех (\(mainChars.count))") {
-                            withAnimation { allCharacters.toggle() }
+                    SectionLink(title: "Персонажи (\(chars.count))") { TitleCharactersScreen(roles: model.roles) }
+                    LazyVGrid(columns: cols, spacing: 10) {
+                        ForEach(chars.prefix(6)) { role in
+                            if let c = role.character {
+                                NavigationLink { CharacterView(id: c.id) } label: { PersonCellView(person: c) }
+                                    .buttonStyle(.plain)
+                            }
                         }
-                        .font(.subheadline.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                    }
-                }
-            }
-            if !otherChars.isEmpty {
-                VStack(alignment: .leading, spacing: 10) {
-                    sectionTitle(mainChars.isEmpty ? "Персонажи" : "Второстепенные герои")
-                    characterGrid(otherChars, expanded: allSupporting, limit: 8, main: false)
-                    if otherChars.count > 8 {
-                        Button(allSupporting ? "Свернуть" : "Показать всех (\(otherChars.count))") {
-                            withAnimation { allSupporting.toggle() }
-                        }
-                        .font(.subheadline.weight(.semibold))
-                        .frame(maxWidth: .infinity)
                     }
                 }
             }
             if !staff.isEmpty {
                 VStack(alignment: .leading, spacing: 10) {
-                    sectionTitle("Создатели")
+                    SectionLink(title: "Создатели (\(staff.count))") { TitleStaffScreen(roles: model.roles) }
                     LazyVGrid(columns: cols, spacing: 10) {
-                        ForEach(allStaff ? staff : Array(staff.prefix(8))) { role in
+                        ForEach(staff.prefix(6)) { role in
                             if let p = role.person {
                                 NavigationLink { PersonView(id: p.id) } label: {
-                                    personCell(p, subtitle: role.staffRolesText)
+                                    PersonCellView(person: p, subtitle: role.staffRolesText)
                                 }
                                 .buttonStyle(.plain)
                             }
                         }
-                    }
-                    if staff.count > 8 {
-                        Button(allStaff ? "Свернуть" : "Показать всех (\(staff.count))") {
-                            withAnimation { allStaff.toggle() }
-                        }
-                        .font(.subheadline.weight(.semibold))
-                        .frame(maxWidth: .infinity)
                     }
                 }
             }
