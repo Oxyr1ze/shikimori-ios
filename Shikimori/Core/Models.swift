@@ -658,6 +658,45 @@ struct VideoItem: Codable, Identifiable, Hashable {
     }
 }
 
+/// Группа видео для вкладок на экране «Видео» (по важности).
+enum VideoGroup: Int, CaseIterable, Identifiable {
+    case promo, music, episodes, clips, ads, other
+    var id: Int { rawValue }
+    var title: String {
+        switch self {
+        case .promo: return "Трейлеры"
+        case .music: return "Опенинги и эндинги"
+        case .episodes: return "Анонсы серий"
+        case .clips: return "Клипы"
+        case .ads: return "Реклама"
+        case .other: return "Другое"
+        }
+    }
+}
+
+extension VideoItem {
+    var group: VideoGroup {
+        switch kind {
+        case "pv", "character_trailer": return .promo
+        case "op", "ed", "op_ed_clip": return .music
+        case "episode_preview": return .episodes
+        case "clip": return .clips
+        case "cm": return .ads
+        default: return .other
+        }
+    }
+}
+
+extension Array where Element == VideoItem {
+    /// Видео по порядку важности групп (внутри группы порядок сайта).
+    var byImportance: [VideoItem] {
+        enumerated().sorted { a, b in
+            a.element.group.rawValue != b.element.group.rawValue
+                ? a.element.group.rawValue < b.element.group.rawValue : a.offset < b.offset
+        }.map(\.element)
+    }
+}
+
 extension AuthManager {
     func videos(_ ref: MediaRef) async -> [VideoItem] {
         guard ref.kind == .anime else { return [] }

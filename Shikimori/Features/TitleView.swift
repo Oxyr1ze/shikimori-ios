@@ -748,7 +748,7 @@ struct TitleView: View {
 
     @ViewBuilder
     private func videosRow(_ d: MediaDetail) -> some View {
-        let list = model.videos.filter { $0.playerURL != nil }
+        let list = model.videos.filter { $0.playerURL != nil }.byImportance
         if !list.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 SectionLink(title: "Видео (\(list.count))") {

@@ -233,19 +233,44 @@ struct VideoCard: View {
     }
 }
 
-/// Все видео тайтла сеткой.
+/// Все видео тайтла: вкладки по группам (трейлеры, опенинги и эндинги, анонсы серий, …).
 struct VideosPage: View {
     let title: String
     let videos: [VideoItem]
     @State private var playing: VideoItem?
+    @State private var selected: VideoGroup?
     private let cols = [GridItem(.flexible(), spacing: 12, alignment: .top), GridItem(.flexible(), spacing: 12, alignment: .top)]
+
+    private var groups: [VideoGroup] {
+        VideoGroup.allCases.filter { g in videos.contains { $0.group == g } }
+    }
+    private var shown: [VideoItem] {
+        let list = videos.byImportance
+        guard let g = selected else { return list }
+        return list.filter { $0.group == g }
+    }
+    private func count(_ g: VideoGroup?) -> Int {
+        g == nil ? videos.count : videos.filter { $0.group == g }.count
+    }
 
     var body: some View {
         ScrollView {
-            LazyVGrid(columns: cols, spacing: 14) {
-                ForEach(videos) { v in
-                    Button { playing = v } label: { VideoCard(video: v) }
-                        .buttonStyle(.plain)
+            VStack(alignment: .leading, spacing: 14) {
+                if groups.count > 1 {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            chip("Все", nil)
+                            ForEach(groups) { g in chip(g.title, g) }
+                        }
+                        .padding(.horizontal, 20)
+                    }
+                    .padding(.horizontal, -20)
+                }
+                LazyVGrid(columns: cols, spacing: 14) {
+                    ForEach(shown) { v in
+                        Button { playing = v } label: { VideoCard(video: v) }
+                            .buttonStyle(.plain)
+                    }
                 }
             }
             .padding(20)
@@ -259,5 +284,18 @@ struct VideosPage: View {
                 VideoPlayerScreen(player: player, link: link)
             }
         }
+    }
+
+    private func chip(_ text: String, _ g: VideoGroup?) -> some View {
+        let on = selected == g
+        return Button { selected = g } label: {
+            Text("\(text) \(count(g))")
+                .font(.subheadline.weight(.semibold))
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .foregroundStyle(on ? Color.white : Color.primary)
+                .background(on ? Theme.accent : Color.clear, in: Capsule())
+                .glassEffect(on ? .regular.tint(Theme.accent) : .regular, in: Capsule())
+        }
+        .buttonStyle(.plain)
     }
 }
