@@ -22,7 +22,6 @@ final class UserModel: ObservableObject {
         if favourites == nil { favourites = DiskCache.load(Favourites.self, key: key("fav")) }
         if friends.isEmpty { friends = DiskCache.load([ShikiUser].self, key: key("friends")) ?? [] }
         if history.isEmpty { history = DiskCache.load([HistoryItem].self, key: key("history")) ?? [] }
-        if comments.isEmpty, let c = DiskCache.load([Comment].self, key: key("comments")) { setComments(c) }
 
         if let i = await api.userProfile(id: user.id) {
             apply(i)
@@ -34,11 +33,6 @@ final class UserModel: ObservableObject {
         async let favTask = api.favourites(id: uid)
         async let friendsTask = api.friends(id: uid)
         async let historyTask = api.history(id: uid)
-        async let commentsTask = try? await api.comments(topicID: uid, type: "User", page: 1, limit: 10)
-        if let c = await commentsTask {
-            setComments(Array(c.prefix(10)))
-            DiskCache.save(comments, key: key("comments"))
-        }
         if let f = await favTask {
             favourites = f
             DiskCache.save(f, key: key("fav"))
@@ -204,34 +198,20 @@ struct UserContent: View {
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
-    @ViewBuilder
     private var commentsSection: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Комментарии").font(.title3.weight(.bold))
-            if model.comments.isEmpty {
-                if model.loaded {
-                    Text("Комментариев пока нет").font(.subheadline).foregroundStyle(.secondary)
-                }
-            } else {
-                ForEach(model.comments) { c in
-                    CommentRowView(comment: c, blocks: model.commentBlocks[c.id] ?? [])
-                }
-                NavigationLink {
-                    CommentsView(topicID: model.user.id, title: "Комментарии: \(model.user.nickname)",
-                                 type: "User", canPost: false)
-                } label: {
-                    HStack {
-                        Text("Все комментарии").font(.body.weight(.semibold))
-                        Spacer()
-                        Image(systemName: "chevron.right").foregroundStyle(.secondary)
-                    }
-                    .padding(16)
-                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-                }
-                .buttonStyle(.plain)
+        NavigationLink {
+            CommentsView(topicID: model.user.id, title: "Комментарии: \(model.user.nickname)",
+                         type: "User", canPost: false)
+        } label: {
+            HStack {
+                Label("Комментарии", systemImage: "text.bubble").font(.body.weight(.semibold))
+                Spacer()
+                Image(systemName: "chevron.right").foregroundStyle(.secondary)
             }
+            .padding(16)
+            .background(Theme.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .buttonStyle(.plain)
     }
 }
 

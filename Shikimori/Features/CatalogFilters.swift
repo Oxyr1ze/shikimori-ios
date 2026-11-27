@@ -181,23 +181,29 @@ private struct MenuRow<Content: View>: View {
     @ViewBuilder var content: () -> Content
 
     var body: some View {
-        if multi {
-            Menu { content() } label: { label }
-                .menuActionDismissBehavior(.disabled)
-        } else {
-            Menu { content() } label: { label }
+        HStack(spacing: 8) {
+            Text(verbatim: title).layoutPriority(1)
+            Spacer(minLength: 4)
+            // Меню привязано к правой части строки фиксированной ширины: оно открывается справа и не двигается при выборе
+            if multi {
+                Menu { content() } label: { label }
+                    .menuActionDismissBehavior(.disabled)
+            } else {
+                Menu { content() } label: { label }
+            }
         }
     }
 
     private var label: some View {
         HStack(spacing: 4) {
-            Text(verbatim: title).foregroundStyle(Color.primary)
-            Spacer(minLength: 8)
-            Text(verbatim: summary.isEmpty ? "Не важно" : summary).lineLimit(1)
+            Spacer(minLength: 0)
+            Text(verbatim: summary.isEmpty ? "Не важно" : summary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
             Image(systemName: "chevron.up.chevron.down").font(.footnote)
         }
         .foregroundStyle(summary.isEmpty ? Color.secondary : Theme.accent)
-        .frame(maxWidth: .infinity)
+        .frame(width: 150, height: 34)
         .contentShape(Rectangle())
     }
 }
