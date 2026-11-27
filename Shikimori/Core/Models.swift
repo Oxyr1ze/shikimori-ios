@@ -138,8 +138,10 @@ struct CastPerson: Codable, Hashable {
     var image: ImageSet?
     /// characters или people: нужен, чтобы искать запасную картинку (не хранится, определяется по месту в ответе).
     var fbKind: String? = nil
+    /// true, если картинка взята из GraphQL (та же, что на сайте): тогда запасные картинки не нужны.
+    var gqlFixed: Bool? = nil
 
-    enum CodingKeys: String, CodingKey { case id, name, russian, image }
+    enum CodingKeys: String, CodingKey { case id, name, russian, image, gqlFixed }
 
     init(id: Int, name: String?, russian: String?, image: ImageSet?, fbKind: String? = nil) {
         self.id = id; self.name = name; self.russian = russian; self.image = image; self.fbKind = fbKind
@@ -151,6 +153,7 @@ struct CastPerson: Codable, Hashable {
         name = try? c.decodeIfPresent(String.self, forKey: .name)
         russian = try? c.decodeIfPresent(String.self, forKey: .russian)
         image = try? c.decodeIfPresent(ImageSet.self, forKey: .image)
+        gqlFixed = try? c.decodeIfPresent(Bool.self, forKey: .gqlFixed)
         let path = decoder.codingPath.map(\.stringValue)
         if path.contains("character") || path.contains("characters") { fbKind = "characters" }
         else if path.contains("person") || path.contains("seyu") || path.contains("people") { fbKind = "people" }
@@ -161,7 +164,9 @@ struct CastPerson: Codable, Hashable {
         return name ?? ""
     }
     var imageURLs: [URL] {
-        urlList([image?.original, image?.preview, image?.x96]) + (fbKind.flatMap { ExternalImages.url($0, id) }.map { [$0] } ?? [])
+        // Картинка с сайта известна: сначала лёгкий размер (быстро), затем оригинал, без других картинок
+        if gqlFixed == true { return urlList([image?.preview, image?.original, image?.x96]) }
+        return urlList([image?.original, image?.preview, image?.x96]) + (fbKind.flatMap { ExternalImages.url($0, id) }.map { [$0] } ?? [])
     }
 }
 
@@ -606,7 +611,10 @@ struct CharacterDetail: Codable {
         if let r = russian, !r.isEmpty { return r }
         return name ?? ""
     }
-    var posterURLs: [URL] { urlList([gqlPoster?.original, gqlPoster?.main, gqlPoster?.preview, image?.original, image?.preview, image?.x96]) + (ExternalImages.url("characters", id).map { [$0] } ?? []) }
+    var posterURLs: [URL] {
+        if let g = gqlPoster, g.original != nil || g.main != nil { return urlList([g.original, g.main, g.preview]) }
+        return urlList([image?.original, image?.preview, image?.x96]) + (ExternalImages.url("characters", id).map { [$0] } ?? [])
+    }
 }
 
 struct PersonRoleGroup: Codable {
@@ -641,7 +649,10 @@ struct PersonDetail: Codable {
         if let r = russian, !r.isEmpty { return r }
         return name ?? ""
     }
-    var posterURLs: [URL] { urlList([gqlPoster?.original, gqlPoster?.main, gqlPoster?.preview, image?.original, image?.preview, image?.x96]) + (ExternalImages.url("people", id).map { [$0] } ?? []) }
+    var posterURLs: [URL] {
+        if let g = gqlPoster, g.original != nil || g.main != nil { return urlList([g.original, g.main, g.preview]) }
+        return urlList([image?.original, image?.preview, image?.x96]) + (ExternalImages.url("people", id).map { [$0] } ?? [])
+    }
 }
 
 

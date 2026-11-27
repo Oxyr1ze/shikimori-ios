@@ -137,10 +137,16 @@ struct PersonHeader: View {
     let title: String
     let others: [String]
     var badge: String? = nil
+    @State private var viewer: ViewerState?
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 16) {
-            PosterView(urls: posters, radius: 22, placeholder: "person.fill").frame(width: 128)
+            Button {
+                if !posters.isEmpty { viewer = ViewerState(images: [posters], index: 0) }
+            } label: {
+                PosterView(urls: posters, radius: 22, placeholder: "person.fill").frame(width: 128)
+            }
+            .buttonStyle(.plain)
             VStack(alignment: .leading, spacing: 6) {
                 Text(title).font(.title2.weight(.heavy)).fixedSize(horizontal: false, vertical: true)
                 ForEach(others, id: \.self) { n in
@@ -156,6 +162,7 @@ struct PersonHeader: View {
             }
             Spacer(minLength: 0)
         }
+        .fullScreenCover(item: $viewer) { ImageViewer(images: $0.images, index: $0.index) }
     }
 }
 

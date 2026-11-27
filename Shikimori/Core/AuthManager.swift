@@ -49,7 +49,9 @@ final class AuthManager: ObservableObject {
     @Published var isReady = false
 
     private let pacer = RequestPacer()
-    private var posterCache: [String: PosterURLs] = [:]
+    // Картинки людей и персонажей запоминаются на диске: при следующем открытии показываются сразу
+    private var posterCache: [String: PosterURLs] = DiskCache.load([String: PosterURLs].self, key: "poster-cache-v1") ?? [:]
+    private func savePosterCache() { DiskCache.save(posterCache, key: "poster-cache-v1") }
     private var refreshing: Task<Bool, Never>?
 
     var clientID: String { Keychain.get("client_id") }
@@ -343,6 +345,7 @@ final class AuthManager: ObservableObject {
                     guard let p = posters[person.id] else { return person }
                     var c = person
                     c.image = ImageSet(original: p.original ?? p.main, preview: p.main ?? p.original, x96: p.preview ?? p.main, x48: p.preview ?? p.main)
+                    c.gqlFixed = true
                     return c
                 }
             }
@@ -478,6 +481,7 @@ final class AuthManager: ObservableObject {
                 posterCache["\(field)-\(id)"] = urls
                 result[id] = urls
             }
+            savePosterCache()
         }
         return result
     }
@@ -489,6 +493,7 @@ final class AuthManager: ObservableObject {
             guard let p = posters[person.id] else { return person }
             var copy = person
             copy.image = ImageSet(original: p.original ?? p.main, preview: p.main ?? p.original, x96: p.preview ?? p.main, x48: p.preview ?? p.main)
+            copy.gqlFixed = true
             return copy
         }
     }
