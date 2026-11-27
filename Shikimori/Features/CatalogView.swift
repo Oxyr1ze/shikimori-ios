@@ -12,13 +12,29 @@ final class CatalogModel: ObservableObject {
     private var hasMore = true
     private var generation = 0
 
+    /// Ключ кэша: тип, сортировка, поиск и все выбранные фильтры (первая страница результата).
+    private var cacheKey: String {
+        let q = filters.queryItems(kind: kind).map { "\($0.name)=\($0.value ?? "")" }.sorted().joined(separator: "&")
+        let text = query.trimmingCharacters(in: .whitespaces)
+        return "catalog-\(kind.path)-\(filters.order)-\(text)-\(abs(q.hashValue))"
+    }
+
     func reload() async {
         generation += 1
         page = 1
         hasMore = true
-        items = []
+        // Сохранённая первая страница показывается сразу, свежие данные заменят её
+        if let cached = DiskCache.load([Media].self, key: cacheKey), !cached.isEmpty {
+            items = cached
+            fromCache = true
+        } else {
+            items = []
+            fromCache = false
+        }
         await loadMore()
     }
+
+    @Published var fromCache = false
 
     func loadMore(after current: Media? = nil) async {
         if let current, let last = items.suffix(6).first, current.id != last.id,
@@ -32,13 +48,22 @@ final class CatalogModel: ObservableObject {
                 kind: kind, order: filters.order, search: query.trimmingCharacters(in: .whitespaces),
                 filters: filters.queryItems(kind: kind), page: page, limit: 24)
             guard gen == generation else { loading = false; return }
-            let known = Set(items.map(\.id))
-            items += result.filter { !known.contains($0.id) }
+            if page == 1 {
+                items = result
+                fromCache = false
+                if !result.isEmpty { DiskCache.save(result, key: cacheKey) }
+            } else {
+                let known = Set(items.map(\.id))
+                items += result.filter { !known.contains($0.id) }
+            }
             hasMore = result.count >= 24
             page += 1
         } catch is CancellationError {
         } catch {
-            if gen == generation { self.error = error.localizedDescription }
+            if gen == generation {
+                // Нет сети: оставляем сохранённую страницу и сообщаем об этом
+                self.error = (fromCache && !items.isEmpty) ? offlineMessage : error.localizedDescription
+            }
         }
         loading = false
     }

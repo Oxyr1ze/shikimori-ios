@@ -86,27 +86,8 @@ struct UserContent: View {
 
     var body: some View {
         VStack(spacing: 18) {
-            VStack(spacing: 10) {
-                Color(UIColor.tertiarySystemFill)
-                    .frame(width: 96, height: 96)
-                    .overlay { if let u = model.user.avatarURL { RemoteImage(urls: [u]) } }
-                    .clipShape(Circle())
-                Text(model.user.nickname).font(.title2.weight(.heavy))
-                if !subtitle.isEmpty {
-                    Text(subtitle).font(.subheadline).foregroundStyle(.secondary)
-                }
-                if let last = model.info?.lastOnlineAt, !last.isEmpty {
-                    Text("Был на сайте: \(relativeDateText(last))")
-                        .font(.footnote).foregroundStyle(.secondary)
-                }
-                if let site = model.info?.website, !site.isEmpty,
-                   let url = URL(string: "https://" + site) {
-                    Link(site, destination: url).font(.footnote)
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 24)
-            .background(Theme.card, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+            hero
+            counters
 
             if let stats = model.info?.stats { StatsView(stats: stats) }
 
@@ -131,6 +112,101 @@ struct UserContent: View {
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }
+    }
+
+    // MARK: Шапка
+
+    private var hero: some View {
+        VStack(spacing: 10) {
+            Color(UIColor.tertiarySystemFill)
+                .frame(width: 108, height: 108)
+                .overlay { if let u = model.user.avatarURL { RemoteImage(urls: [u]) } }
+                .clipShape(Circle())
+                .overlay(Circle().stroke(.white.opacity(0.85), lineWidth: 3))
+                .shadow(color: .black.opacity(0.35), radius: 14, y: 6)
+            Text(model.user.nickname)
+                .font(.title.weight(.heavy))
+                .foregroundStyle(.white)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+
+            HStack(spacing: 8) {
+                if let y = model.info?.fullYears, y > 0 { chip("\(y) \(yearsWord(y))", "birthday.cake.fill") }
+                if let s = model.info?.sex {
+                    if s == "male" { chip("Мужской", "figure.stand") }
+                    else if s == "female" { chip("Женский", "figure.stand.dress") }
+                }
+            }
+            if let last = model.info?.lastOnlineAt, !last.isEmpty {
+                chip("Был на сайте: \(relativeDateText(last))", "clock.fill")
+            }
+            if let site = model.info?.website, !site.isEmpty, let url = URL(string: "https://" + site) {
+                Link(destination: url) {
+                    Label(site, systemImage: "link").font(.footnote.weight(.semibold)).lineLimit(1)
+                }
+                .buttonStyle(.glass)
+            }
+        }
+        .padding(.vertical, 26)
+        .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity)
+        .background {
+            // Размытый аватар как фон шапки
+            Color(UIColor.tertiarySystemFill)
+                .overlay { if let u = model.user.avatarURL { RemoteImage(urls: [u]) } }
+                .blur(radius: 36)
+                .scaleEffect(1.4)
+                .overlay(LinearGradient(colors: [.black.opacity(0.15), .black.opacity(0.55)],
+                                        startPoint: .top, endPoint: .bottom))
+        }
+        .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
+    }
+
+    private func chip(_ text: String, _ icon: String) -> some View {
+        Label(text, systemImage: icon)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.white)
+            .lineLimit(1)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 7)
+            .glassEffect(.regular, in: Capsule())
+    }
+
+    // MARK: Счётчики
+
+    private func total(_ key: String) -> Int {
+        (model.info?.stats?.fullStatuses?[key] ?? []).reduce(0) { $0 + $1.size }
+    }
+
+    private var averageText: String? {
+        let all = (model.info?.stats?.scores?["anime"] ?? []).filter { (Int($0.name) ?? 0) > 0 }
+        let votes = all.reduce(0) { $0 + $1.value }
+        guard votes > 0 else { return nil }
+        let sum = all.reduce(0) { $0 + (Int($1.name) ?? 0) * $1.value }
+        return String(format: "%.2f", Double(sum) / Double(votes))
+    }
+
+    @ViewBuilder
+    private var counters: some View {
+        if model.info?.stats != nil {
+            HStack(spacing: 10) {
+                tile("\(total("anime"))", "Аниме", "play.rectangle.fill")
+                tile("\(total("manga"))", "Манга", "book.fill")
+                tile(averageText ?? "—", "Ср. оценка", "star.fill")
+                if !model.friends.isEmpty { tile("\(model.friends.count)", "Друзей", "person.2.fill") }
+            }
+        }
+    }
+
+    private func tile(_ value: String, _ label: String, _ icon: String) -> some View {
+        VStack(spacing: 4) {
+            Image(systemName: icon).font(.footnote).foregroundStyle(Theme.accent)
+            Text(value).font(.title3.weight(.heavy)).minimumScaleFactor(0.7).lineLimit(1)
+            Text(label).font(.caption2).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.8)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 12)
+        .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     @ViewBuilder
@@ -185,21 +261,24 @@ struct UserContent: View {
     private var friendsRow: some View {
         if !model.friends.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Друзья").font(.title3.weight(.bold))
+                Text("Друзья (\(model.friends.count))").font(.title3.weight(.bold))
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(alignment: .top, spacing: 14) {
                         ForEach(model.friends, id: \.id) { f in
                             NavigationLink { UserView(user: f) } label: {
-                                VStack(spacing: 6) {
+                                VStack(spacing: 8) {
                                     Color(UIColor.tertiarySystemFill)
-                                        .frame(width: 60, height: 60)
+                                        .frame(width: 64, height: 64)
                                         .overlay { if let u = f.avatarURL { RemoteImage(urls: [u]) } }
                                         .clipShape(Circle())
                                     Text(f.nickname)
                                         .font(.caption.weight(.semibold))
                                         .lineLimit(1)
-                                        .frame(width: 72)
+                                        .frame(width: 80)
                                 }
+                                .padding(.vertical, 12)
+                                .padding(.horizontal, 6)
+                                .background(Theme.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
                             }
                             .buttonStyle(.plain)
                         }
@@ -217,12 +296,19 @@ struct UserContent: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Недавняя активность").font(.title3.weight(.bold))
                 ForEach(items) { item in
-                    let content = VStack(alignment: .leading, spacing: 4) {
-                        if let t = item.target, !t.title.isEmpty {
-                            Text(t.title).font(.subheadline.weight(.bold)).multilineTextAlignment(.leading)
+                    let content = HStack(alignment: .top, spacing: 12) {
+                        Image(systemName: item.target?.kind == .anime ? "play.fill" : "book.fill")
+                            .font(.footnote.weight(.bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 32, height: 32)
+                            .background(Theme.accent.opacity(0.9), in: Circle())
+                        VStack(alignment: .leading, spacing: 4) {
+                            if let t = item.target, !t.title.isEmpty {
+                                Text(t.title).font(.subheadline.weight(.bold)).multilineTextAlignment(.leading)
+                            }
+                            Text(item.plainDescription).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.leading)
+                            Text(item.dateText).font(.caption).foregroundStyle(.tertiary)
                         }
-                        Text(item.plainDescription).font(.subheadline).multilineTextAlignment(.leading)
-                        Text(item.dateText).font(.caption).foregroundStyle(.secondary)
                     }
                     .padding(12)
                     .frame(maxWidth: .infinity, alignment: .leading)
