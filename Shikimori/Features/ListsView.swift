@@ -226,7 +226,7 @@ struct ListsView: View {
     private var statusTabs: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(RateStatus.allCases) { s in
+                ForEach(RateStatus.listOrder) { s in
                     let selected = s == model.status
                     Button { model.status = s } label: {
                         HStack(spacing: 6) {

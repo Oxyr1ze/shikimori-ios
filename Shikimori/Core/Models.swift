@@ -362,6 +362,8 @@ enum RateStatus: String, CaseIterable, Identifiable {
     // Порядок как на сайте: запланировано, смотрю, просмотрено, пересматриваю, отложено, брошено
     case planned, watching, completed, rewatching, onHold = "on_hold", dropped
     var id: String { rawValue }
+    /// Порядок вкладок в «Списках»: смотрю, запланировано, просмотрено, отложено, брошено, пересматриваю
+    static let listOrder: [RateStatus] = [.watching, .planned, .completed, .onHold, .dropped, .rewatching]
 
     /// Названия как на сайте (config/locales/ru.yml): у аниме «Смотрю», у манги и ранобэ «Читаю».
     func title(for kind: MediaKind) -> String {
@@ -604,7 +606,7 @@ struct CharacterDetail: Codable {
         if let r = russian, !r.isEmpty { return r }
         return name ?? ""
     }
-    var posterURLs: [URL] { urlList([image?.original, image?.preview, image?.x96, gqlPoster?.original, gqlPoster?.main, gqlPoster?.preview]) + (ExternalImages.url("characters", id).map { [$0] } ?? []) }
+    var posterURLs: [URL] { urlList([gqlPoster?.original, gqlPoster?.main, gqlPoster?.preview, image?.original, image?.preview, image?.x96]) + (ExternalImages.url("characters", id).map { [$0] } ?? []) }
 }
 
 struct PersonRoleGroup: Codable {
@@ -639,7 +641,7 @@ struct PersonDetail: Codable {
         if let r = russian, !r.isEmpty { return r }
         return name ?? ""
     }
-    var posterURLs: [URL] { urlList([image?.original, image?.preview, image?.x96, gqlPoster?.original, gqlPoster?.main, gqlPoster?.preview]) + (ExternalImages.url("people", id).map { [$0] } ?? []) }
+    var posterURLs: [URL] { urlList([gqlPoster?.original, gqlPoster?.main, gqlPoster?.preview, image?.original, image?.preview, image?.x96]) + (ExternalImages.url("people", id).map { [$0] } ?? []) }
 }
 
 
