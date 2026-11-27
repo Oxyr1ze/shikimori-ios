@@ -97,7 +97,7 @@ enum CatalogOptions {
 
     static func myList(for kind: MediaKind) -> [(String, String)] {
         let reading = kind != .anime
-        return [("planned", "В планах"), ("watching", reading ? "Читаю" : "Смотрю"),
+        return [("planned", "Запланировано"), ("watching", reading ? "Читаю" : "Смотрю"),
                 ("completed", reading ? "Прочитано" : "Просмотрено"), ("on_hold", "Отложено"),
                 ("dropped", "Брошено"), ("rewatching", reading ? "Перечитываю" : "Пересматриваю"),
                 ("none", "Нет в списке")]

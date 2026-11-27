@@ -357,21 +357,27 @@ struct ShikiUser: Codable, Hashable {
 }
 
 enum RateStatus: String, CaseIterable, Identifiable {
-    case watching, planned, completed, onHold = "on_hold", dropped, rewatching
+    // Порядок как на сайте: запланировано, смотрю, просмотрено, пересматриваю, отложено, брошено
+    case planned, watching, completed, rewatching, onHold = "on_hold", dropped
     var id: String { rawValue }
-    var title: String {
+
+    /// Названия как на сайте (config/locales/ru.yml): у аниме «Смотрю», у манги и ранобэ «Читаю».
+    func title(for kind: MediaKind) -> String {
+        let reading = kind != .anime
         switch self {
-        case .watching: return "Смотрю"
-        case .planned: return "В планах"
-        case .completed: return "Просмотрено"
+        case .planned: return "Запланировано"
+        case .watching: return reading ? "Читаю" : "Смотрю"
+        case .completed: return reading ? "Прочитано" : "Просмотрено"
+        case .rewatching: return reading ? "Перечитываю" : "Пересматриваю"
         case .onHold: return "Отложено"
         case .dropped: return "Брошено"
-        case .rewatching: return "Пересматриваю"
         }
     }
-    static func title(for raw: String?) -> String {
+    var title: String { title(for: .anime) }
+
+    static func title(for raw: String?, kind: MediaKind = .anime) -> String {
         guard let raw, let s = RateStatus(rawValue: raw) else { return "Не в списке" }
-        return s.title
+        return s.title(for: kind)
     }
     var icon: String {
         switch self {

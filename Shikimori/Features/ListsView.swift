@@ -1,52 +1,117 @@
 import SwiftUI
 
+enum ListSort: String, CaseIterable, Identifiable {
+    case site, name, myScore, siteScore, progress
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .site: return "Как на сайте"
+        case .name: return "По названию"
+        case .myScore: return "По моей оценке"
+        case .siteScore: return "По оценке на сайте"
+        case .progress: return "По прогрессу"
+        }
+    }
+}
+
 @MainActor
 final class ListsModel: ObservableObject {
     @Published var kind: MediaKind = .anime
     @Published var status: RateStatus = .watching
-    @Published var entries: [RateEntry] = []
+    /// Загруженные списки по ключу «раздел-статус»: переключение между статусами мгновенное.
+    @Published private(set) var lists: [String: [RateEntry]] = [:]
     @Published var loading = false
     @Published var error: String?
+    private var prefetched = Set<MediaKind>()
+
+    private func key(_ k: MediaKind, _ s: RateStatus) -> String { "\(k.rawValue)-\(s.rawValue)" }
+
+    var entries: [RateEntry] { lists[key(kind, status)] ?? [] }
+    func count(_ s: RateStatus) -> Int? { lists[key(kind, s)]?.count }
+    var total: Int? {
+        let counts = RateStatus.allCases.compactMap { count($0) }
+        return counts.count == RateStatus.allCases.count ? counts.reduce(0, +) : nil
+    }
+
+    private func fetch(_ k: MediaKind, _ s: RateStatus) async throws -> [RateEntry] {
+        k == .anime
+            ? try await AuthManager.shared.animeRates(status: s.rawValue)
+            : try await AuthManager.shared.mangaRates(kind: k, status: s.rawValue)
+    }
+
+    private func restore(_ k: MediaKind, _ s: RateStatus) {
+        let id = key(k, s)
+        if lists[id] == nil, let cached = DiskCache.load([RateEntry].self, key: DiskCache.userKey("lists-\(id)")) {
+            lists[id] = cached
+        }
+    }
 
     func load() async {
-        let key = DiskCache.userKey("lists-\(kind.rawValue)-\(status.rawValue)")
-        if entries.isEmpty, let cached = DiskCache.load([RateEntry].self, key: key) { entries = cached }
+        let k = kind, s = status
+        RateStatus.allCases.forEach { restore(k, $0) }
         loading = true
         error = nil
         do {
-            if kind == .anime {
-                entries = try await AuthManager.shared.animeRates(status: status.rawValue)
-            } else {
-                entries = try await AuthManager.shared.mangaRates(kind: kind, status: status.rawValue)
-            }
-            DiskCache.save(entries, key: key)
+            let result = try await fetch(k, s)
+            lists[key(k, s)] = result
+            DiskCache.save(result, key: DiskCache.userKey("lists-\(key(k, s))"))
         } catch is CancellationError {
+            loading = false
+            return
         } catch {
             self.error = entries.isEmpty ? error.localizedDescription : offlineMessage
         }
         loading = false
+        await prefetchOthers(k, except: s)
+    }
+
+    /// Остальные статусы того же раздела подгружаются тихо: появляются числа на вкладках, переключение мгновенное.
+    private func prefetchOthers(_ k: MediaKind, except loaded: RateStatus) async {
+        guard !prefetched.contains(k) else { return }
+        prefetched.insert(k)
+        for s in RateStatus.allCases where s != loaded {
+            if Task.isCancelled { prefetched.remove(k); return }
+            do {
+                let result = try await fetch(k, s)
+                lists[key(k, s)] = result
+                DiskCache.save(result, key: DiskCache.userKey("lists-\(key(k, s))"))
+            } catch {
+                prefetched.remove(k)
+                return
+            }
+        }
+    }
+
+    func forceReload() async {
+        prefetched.remove(kind)
+        await load()
     }
 
     func bump(_ entry: RateEntry) async {
-        guard let idx = entries.firstIndex(where: { $0.id == entry.id }) else { return }
+        let id = key(kind, status)
+        guard var list = lists[id], let idx = list.firstIndex(where: { $0.id == entry.id }) else { return }
         if kind == .anime {
             var next = (entry.episodes ?? 0) + 1
             if let total = entry.anime?.episodes, total > 0 { next = min(next, total) }
-            entries[idx].episodes = next
+            list[idx].episodes = next
+            lists[id] = list
             do {
-                try await AuthManager.shared.updateRate(id: entry.id, episodes: next)
+                _ = try await AuthManager.shared.updateRate(id: entry.id, episodes: next)
             } catch {
-                entries[idx].episodes = entry.episodes
+                list[idx].episodes = entry.episodes
+                lists[id] = list
                 self.error = error.localizedDescription
             }
         } else {
             var next = (entry.chapters ?? 0) + 1
             if let total = entry.manga?.chapters, total > 0 { next = min(next, total) }
-            entries[idx].chapters = next
+            list[idx].chapters = next
+            lists[id] = list
             do {
-                try await AuthManager.shared.updateRate(id: entry.id, chapters: next)
+                _ = try await AuthManager.shared.updateRate(id: entry.id, chapters: next)
             } catch {
-                entries[idx].chapters = entry.chapters
+                list[idx].chapters = entry.chapters
+                lists[id] = list
                 self.error = error.localizedDescription
             }
         }
@@ -55,41 +120,63 @@ final class ListsModel: ObservableObject {
 
 struct ListsView: View {
     @StateObject private var model = ListsModel()
+    @State private var search = ""
+    @State private var sort: ListSort = .site
+
+    private var shown: [RateEntry] {
+        var list = model.entries.filter { $0.media != nil }
+        let q = search.trimmingCharacters(in: .whitespaces)
+        if !q.isEmpty {
+            list = list.filter {
+                guard let m = $0.media else { return false }
+                return m.title.localizedCaseInsensitiveContains(q) || m.name.localizedCaseInsensitiveContains(q)
+            }
+        }
+        switch sort {
+        case .site: break
+        case .name: list.sort { ($0.media?.title ?? "").localizedCompare($1.media?.title ?? "") == .orderedAscending }
+        case .myScore: list.sort { ($0.score ?? 0) > ($1.score ?? 0) }
+        case .siteScore: list.sort { (Double($0.media?.score ?? "") ?? 0) > (Double($1.media?.score ?? "") ?? 0) }
+        case .progress:
+            let isAnime = model.kind == .anime
+            list.sort { (isAnime ? $0.episodes : $0.chapters) ?? 0 > (isAnime ? $1.episodes : $1.chapters) ?? 0 }
+        }
+        return list
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 14) {
+                LazyVStack(spacing: 12) {
                     Picker("Раздел", selection: $model.kind) {
                         ForEach(MediaKind.allCases) { Text($0.title).tag($0) }
                     }
                     .pickerStyle(.segmented)
 
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(RateStatus.allCases) { s in
-                                Button(s.title) { model.status = s }
-                                    .buttonStyle(.glass)
-                                    .tint(s == model.status ? Theme.accent : .gray)
-                                    .fontWeight(s == model.status ? .bold : .regular)
-                            }
+                    statusTabs
+
+                    if let total = model.total, search.isEmpty {
+                        HStack {
+                            Text("Всего в разделе: \(total)").font(.footnote).foregroundStyle(.secondary)
+                            Spacer()
                         }
                     }
 
-                    ForEach(model.entries) { entry in
-                        if let media = entry.media {
-                            row(entry, media)
-                        }
+                    ForEach(shown) { entry in
+                        if let media = entry.media { row(entry, media) }
                     }
 
-                    if model.loading { ProgressView().padding() }
-                    if !model.loading && model.entries.isEmpty && model.error == nil {
-                        Text("Здесь пока пусто")
-                            .foregroundStyle(.secondary)
-                            .padding(.top, 40)
+                    if model.loading && model.entries.isEmpty { ProgressView().padding() }
+                    if !model.loading && model.error == nil && shown.isEmpty {
+                        ContentUnavailableView(
+                            search.isEmpty ? "Здесь пока пусто" : "Ничего не найдено",
+                            systemImage: search.isEmpty ? RateStatus.icon(for: model.status.rawValue) : "magnifyingglass",
+                            description: Text(search.isEmpty ? "В списке «\(model.status.title(for: model.kind))» нет записей" : "Попробуйте изменить запрос")
+                        )
+                        .padding(.top, 30)
                     }
                     if let message = model.error {
-                        ErrorBanner(message: message) { Task { await model.load() } }
+                        ErrorBanner(message: message) { Task { await model.forceReload() } }
                     }
                 }
                 .padding(.horizontal, 20)
@@ -98,48 +185,109 @@ struct ListsView: View {
             }
             .background(AppBackground())
             .navigationTitle("Мои списки")
-            .navigationDestination(for: MediaRef.self) { TitleView(ref: $0) }
-            .task(id: "\(model.kind.rawValue)-\(model.status.rawValue)") {
-                model.entries = []
-                await model.load()
+            .searchable(text: $search, prompt: "Поиск по списку")
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Menu {
+                        Picker("Сортировка", selection: $sort) {
+                            ForEach(ListSort.allCases) { Text($0.title).tag($0) }
+                        }
+                    } label: {
+                        Image(systemName: "arrow.up.arrow.down")
+                    }
+                    .accessibilityLabel("Сортировка")
+                }
             }
-            .refreshable { await model.load() }
+            .navigationDestination(for: MediaRef.self) { TitleView(ref: $0) }
+            .task(id: "\(model.kind.rawValue)-\(model.status.rawValue)") { await model.load() }
+            .refreshable { await model.forceReload() }
         }
     }
 
+    // MARK: Вкладки статусов (названия как на сайте, у манги свои)
+
+    private var statusTabs: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 8) {
+                ForEach(RateStatus.allCases) { s in
+                    let selected = s == model.status
+                    Button { model.status = s } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: rateGlyph(s.rawValue)).font(.caption.weight(.bold))
+                            Text(s.title(for: model.kind)).font(.subheadline.weight(selected ? .bold : .medium))
+                            if let n = model.count(s) {
+                                Text("\(n)")
+                                    .font(.caption.weight(.bold))
+                                    .padding(.horizontal, 7).padding(.vertical, 2)
+                                    .background(selected ? Color.white.opacity(0.28) : Color.secondary.opacity(0.2), in: Capsule())
+                            }
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 9)
+                        .foregroundStyle(selected ? Color.white : Color.primary)
+                        .glassEffect(selected ? .regular.tint(listStatusColor(s.rawValue).opacity(0.85)) : .regular, in: Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .scrollClipDisabled()
+    }
+
+    // MARK: Строка списка
+
     @ViewBuilder
-    private func row(_ entry: RateEntry, _ anime: Media) -> some View {
+    private func row(_ entry: RateEntry, _ media: Media) -> some View {
         let isAnime = model.kind == .anime
+        let total = (isAnime ? media.episodes : media.chapters) ?? 0
+        let done = (isAnime ? entry.episodes : entry.chapters) ?? 0
+        let unit = isAnime ? "эп." : "гл."
+        let color = listStatusColor(model.status.rawValue)
+        let canBump = model.status == .watching || model.status == .rewatching
+
         HStack(spacing: 12) {
-            NavigationLink(value: MediaRef(id: anime.id, kind: model.kind)) {
-                HStack(spacing: 14) {
-                    PosterView(urls: anime.thumbCandidates, radius: 14)
-                        .frame(width: 58)
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(anime.title)
+            NavigationLink(value: MediaRef(id: media.id, kind: model.kind)) {
+                HStack(alignment: .top, spacing: 14) {
+                    PosterView(urls: media.thumbCandidates, radius: 14)
+                        .frame(width: 70)
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(media.title)
                             .font(.subheadline.weight(.bold))
                             .lineLimit(2)
                             .multilineTextAlignment(.leading)
-                        let total = (isAnime ? anime.episodes : anime.chapters) ?? 0
-                        let watched = (isAnime ? entry.episodes : entry.chapters) ?? 0
-                        if total > 0 {
-                            ProgressView(value: Double(min(watched, total)), total: Double(total))
+                        if let sub = media.subtitleText {
+                            Text(sub).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                         }
-                        Text(total > 0 ? "\(watched) / \(total)" : "\(watched) \(isAnime ? "эп." : "гл.")")
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
+                        Spacer(minLength: 2)
+                        if total > 0 {
+                            ProgressView(value: Double(min(done, total)), total: Double(total)).tint(color)
+                        }
+                        HStack(spacing: 8) {
+                            Text(total > 0 ? "\(done) / \(total) \(unit)" : "\(done) \(unit)")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                            Spacer(minLength: 0)
+                            if let sc = entry.score, sc > 0 {
+                                Label("\(sc)", systemImage: "star.fill")
+                                    .font(.caption.weight(.bold))
+                                    .foregroundStyle(.yellow)
+                                    .labelStyle(.titleAndIcon)
+                            }
+                        }
                     }
-                    Spacer(minLength: 0)
+                    .frame(maxWidth: .infinity, minHeight: 105, alignment: .leading)
                 }
             }
             .buttonStyle(.plain)
 
-            Button { Task { await model.bump(entry) } } label: {
-                Image(systemName: "plus")
+            if canBump {
+                Button { Task { await model.bump(entry) } } label: {
+                    Image(systemName: "plus")
+                }
+                .buttonStyle(.glassProminent)
+                .buttonBorderShape(.circle)
+                .accessibilityLabel("Отметить прогресс")
             }
-            .buttonStyle(.glassProminent)
-            .buttonBorderShape(.circle)
-            .accessibilityLabel("Отметить прогресс")
         }
         .padding(10)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))

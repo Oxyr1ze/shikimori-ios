@@ -104,7 +104,7 @@ enum SiteLabels {
     static func listStatus(_ k: String, kind: MediaKind) -> String {
         let reading = kind != .anime
         switch k {
-        case "planned": return "В планах"
+        case "planned": return "Запланировано"
         case "watching": return reading ? "Читаю" : "Смотрю"
         case "rewatching": return reading ? "Перечитываю" : "Пересматриваю"
         case "completed": return reading ? "Прочитано" : "Просмотрено"

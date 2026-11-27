@@ -8,18 +8,7 @@ struct StatsView: View {
     private var key: String { kind == .anime ? "anime" : "manga" }
 
     private func title(_ status: String) -> String {
-        if kind == .anime {
-            return RateStatus(rawValue: status)?.title ?? status
-        }
-        switch status {
-        case "watching": return "Читаю"
-        case "planned": return "В планах"
-        case "completed": return "Прочитано"
-        case "on_hold": return "Отложено"
-        case "dropped": return "Брошено"
-        case "rewatching": return "Перечитываю"
-        default: return status
-        }
+        RateStatus(rawValue: status)?.title(for: kind) ?? status
     }
 
     private func color(_ status: String) -> Color {

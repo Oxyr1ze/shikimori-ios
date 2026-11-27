@@ -347,7 +347,7 @@ struct TitleView: View {
                 Menu {
                     ForEach(RateStatus.allCases) { st in
                         Button { Task { await model.setStatus(st) } } label: {
-                            Label(st.title, systemImage: st.icon)
+                            Label(st.title(for: ref.kind), systemImage: st.icon)
                         }
                     }
                     if d.userRate != nil {
@@ -357,7 +357,7 @@ struct TitleView: View {
                 } label: {
                     HStack(spacing: 8) {
                         Image(systemName: RateStatus.icon(for: d.userRate?.status))
-                        Text(d.userRate == nil ? "Добавить в список" : RateStatus.title(for: d.userRate?.status))
+                        Text(d.userRate == nil ? "Добавить в список" : RateStatus.title(for: d.userRate?.status, kind: ref.kind))
                             .fontWeight(.bold)
                         Image(systemName: "chevron.up.chevron.down").font(.caption2)
                     }

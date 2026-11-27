@@ -500,7 +500,7 @@ final class AuthManager: ObservableObject {
             URLQueryItem(name: "status", value: status),
             URLQueryItem(name: "limit", value: "200")
         ]
-        var entries: [RateEntry] = try await get("/api/users/\(user.id)/manga_rates", query: q)
+        var entries: [RateEntry] = try await allPages("/api/users/\(user.id)/manga_rates", base: q)
         entries = entries.filter { e in
             guard let m = e.manga else { return false }
             return kind == .ranobe ? m.isRanobe : !m.isRanobe
@@ -512,13 +512,27 @@ final class AuthManager: ObservableObject {
         return entries
     }
 
+    /// Все страницы списка (раньше брались только первые 200 записей): идём по страницам, пока они не кончатся.
+    private func allPages(_ path: String, base: [URLQueryItem]) async throws -> [RateEntry] {
+        var all: [RateEntry] = []
+        var seen = Set<Int>()
+        for page in 1...20 {
+            let q = base.filter { $0.name != "limit" } + [URLQueryItem(name: "limit", value: "500"), URLQueryItem(name: "page", value: String(page))]
+            let chunk: [RateEntry] = try await get(path, query: q)
+            let fresh = chunk.filter { seen.insert($0.id).inserted }
+            if fresh.isEmpty { break }
+            all += fresh
+        }
+        return all
+    }
+
     func animeRates(status: String) async throws -> [RateEntry] {
         guard let user else { throw ShikiError.unauthorized }
         let q = [
             URLQueryItem(name: "status", value: status),
             URLQueryItem(name: "limit", value: "200")
         ]
-        var entries: [RateEntry] = try await get("/api/users/\(user.id)/anime_rates", query: q)
+        var entries: [RateEntry] = try await allPages("/api/users/\(user.id)/anime_rates", base: q)
         let posters = await fetchPosters(ids: entries.compactMap { $0.anime?.id }, kind: .anime)
         for i in entries.indices {
             if let id = entries[i].anime?.id { entries[i].anime?.posterURLs = posters[id] }
