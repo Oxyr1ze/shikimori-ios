@@ -329,6 +329,10 @@ final class AuthManager: ObservableObject {
         fav.mangas = (r.mangas ?? []).map(\.media)
         fav.ranobe = (r.ranobe ?? []).map(\.media)
         fav.characters = (r.characters ?? []).map(\.person)
+        fav.people = (r.people ?? []).map { $0.person(kind: "people") }
+        fav.mangakas = (r.mangakas ?? []).map { $0.person(kind: "people") }
+        fav.seyu = (r.seyu ?? []).map { $0.person(kind: "people") }
+        fav.producers = (r.producers ?? []).map { $0.person(kind: "people") }
         let pa = await fetchPosters(ids: fav.animes.map(\.id), kind: .anime)
         for i in fav.animes.indices { fav.animes[i].posterURLs = pa[fav.animes[i].id] }
         let pm = await fetchPosters(ids: fav.mangas.map(\.id), kind: .manga)
@@ -346,6 +350,13 @@ final class AuthManager: ObservableObject {
     func history(id: Int? = nil) async -> [HistoryItem] {
         guard let uid = id ?? user?.id else { return [] }
         return (try? await get("/api/users/\(uid)/history", query: [URLQueryItem(name: "limit", value: "20")])) ?? []
+    }
+
+    /// Страница полной истории; targetType: nil (всё), "Anime" или "Manga".
+    func historyPage(id: Int, page: Int, limit: Int = 50, targetType: String? = nil) async throws -> [HistoryItem] {
+        var q = [URLQueryItem(name: "limit", value: String(limit)), URLQueryItem(name: "page", value: String(page))]
+        if let targetType { q.append(URLQueryItem(name: "target_type", value: targetType)) }
+        return try await get("/api/users/\(id)/history", query: q)
     }
 
     func comments(topicID: Int, type: String = "Topic", page: Int, limit: Int = 30) async throws -> [Comment] {

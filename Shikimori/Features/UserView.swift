@@ -91,14 +91,9 @@ struct UserContent: View {
 
             if let stats = model.info?.stats { StatsView(stats: stats) }
 
-            if let fav = model.favourites {
-                MediaRow(title: "Избранное: аниме", items: fav.animes, kind: .anime).padding(.horizontal, -20)
-                MediaRow(title: "Избранное: манга", items: fav.mangas, kind: .manga).padding(.horizontal, -20)
-                MediaRow(title: "Избранное: ранобэ", items: fav.ranobe, kind: .ranobe).padding(.horizontal, -20)
-                characters(fav.characters)
-            }
-            friendsRow
-            historyList
+            if let fav = model.favourites { FavouritesSection(fav: fav) }
+            FriendsSection(friends: model.friends)
+            ActivitySection(userID: model.user.id, nickname: model.user.nickname, history: model.history)
 
             // «О себе» внизу: короткий текст виден сразу, длинный сворачивается
             if !model.aboutBlocks.isEmpty {
@@ -237,92 +232,6 @@ struct UserContent: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    @ViewBuilder
-    private func characters(_ list: [CastPerson]) -> some View {
-        if !list.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Избранные персонажи").font(.title3.weight(.bold))
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(alignment: .top, spacing: 14) {
-                        ForEach(list, id: \.id) { c in
-                            NavigationLink { CharacterView(id: c.id) } label: { CastAvatar(person: c) }
-                                .buttonStyle(.plain)
-                        }
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    @ViewBuilder
-    private var friendsRow: some View {
-        if !model.friends.isEmpty {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Друзья (\(model.friends.count))").font(.title3.weight(.bold))
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(alignment: .top, spacing: 14) {
-                        ForEach(model.friends, id: \.id) { f in
-                            NavigationLink { UserView(user: f) } label: {
-                                VStack(spacing: 8) {
-                                    Color(UIColor.tertiarySystemFill)
-                                        .frame(width: 64, height: 64)
-                                        .overlay { if let u = f.avatarURL { RemoteImage(urls: [u]) } }
-                                        .clipShape(Circle())
-                                    Text(f.nickname)
-                                        .font(.caption.weight(.semibold))
-                                        .lineLimit(1)
-                                        .frame(width: 80)
-                                }
-                                .padding(.vertical, 12)
-                                .padding(.horizontal, 6)
-                                .background(Theme.card, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
-                            }
-                            .buttonStyle(.plain)
-                        }
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-    }
-
-    @ViewBuilder
-    private var historyList: some View {
-        let items = model.history.filter { !$0.plainDescription.isEmpty }
-        if !items.isEmpty {
-            VStack(alignment: .leading, spacing: 10) {
-                Text("Недавняя активность").font(.title3.weight(.bold))
-                ForEach(items) { item in
-                    let content = HStack(alignment: .top, spacing: 12) {
-                        Image(systemName: item.target?.kind == .anime ? "play.fill" : "book.fill")
-                            .font(.footnote.weight(.bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 32, height: 32)
-                            .background(Theme.accent.opacity(0.9), in: Circle())
-                        VStack(alignment: .leading, spacing: 4) {
-                            if let t = item.target, !t.title.isEmpty {
-                                Text(t.title).font(.subheadline.weight(.bold)).multilineTextAlignment(.leading)
-                            }
-                            Text(item.plainDescription).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.leading)
-                            Text(item.dateText).font(.caption).foregroundStyle(.tertiary)
-                        }
-                    }
-                    .padding(12)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    if let t = item.target {
-                        NavigationLink { TitleView(ref: MediaRef(id: t.id, kind: t.kind)) } label: { content }
-                            .buttonStyle(.plain)
-                    } else {
-                        content
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
     }
 }
 

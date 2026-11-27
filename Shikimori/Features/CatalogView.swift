@@ -16,7 +16,14 @@ final class CatalogModel: ObservableObject {
     private var cacheKey: String {
         let q = filters.queryItems(kind: kind).map { "\($0.name)=\($0.value ?? "")" }.sorted().joined(separator: "&")
         let text = query.trimmingCharacters(in: .whitespaces)
-        return "catalog-\(kind.path)-\(filters.order)-\(text)-\(abs(q.hashValue))"
+        return "catalog-\(kind.path)-\(filters.order)-\(text)-\(Self.stableHash(q))"
+    }
+
+    /// hashValue в Swift меняется при каждом запуске приложения, поэтому нужен свой постоянный хэш.
+    private static func stableHash(_ s: String) -> String {
+        var h: UInt64 = 1469598103934665603
+        for b in s.utf8 { h ^= UInt64(b); h = h &* 1099511628211 }
+        return String(h, radix: 16)
     }
 
     func reload() async {

@@ -500,8 +500,9 @@ struct FavouriteItem: Codable, Hashable {
         m.image = ImageSet(original: image, preview: image, x96: image, x48: image)
         return m
     }
-    var person: CastPerson {
-        CastPerson(id: id, name: name, russian: russian, image: ImageSet(original: image, preview: image, x96: image, x48: image), fbKind: "characters")
+    var person: CastPerson { person(kind: "characters") }
+    func person(kind: String) -> CastPerson {
+        CastPerson(id: id, name: name, russian: russian, image: ImageSet(original: image, preview: image, x96: image, x48: image), fbKind: kind)
     }
 }
 
@@ -510,6 +511,31 @@ struct Favourites: Codable {
     var mangas: [Media] = []
     var ranobe: [Media] = []
     var characters: [CastPerson] = []
+    /// Люди: просто люди, мангаки, сэйю, продюсеры (на сайте это отдельные группы).
+    var people: [CastPerson] = []
+    var mangakas: [CastPerson] = []
+    var seyu: [CastPerson] = []
+    var producers: [CastPerson] = []
+
+    init() {}
+
+    // Старый сохранённый кэш без новых групп читается без ошибок
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        animes = (try? c.decode([Media].self, forKey: .animes)) ?? []
+        mangas = (try? c.decode([Media].self, forKey: .mangas)) ?? []
+        ranobe = (try? c.decode([Media].self, forKey: .ranobe)) ?? []
+        characters = (try? c.decode([CastPerson].self, forKey: .characters)) ?? []
+        people = (try? c.decode([CastPerson].self, forKey: .people)) ?? []
+        mangakas = (try? c.decode([CastPerson].self, forKey: .mangakas)) ?? []
+        seyu = (try? c.decode([CastPerson].self, forKey: .seyu)) ?? []
+        producers = (try? c.decode([CastPerson].self, forKey: .producers)) ?? []
+    }
+
+    var isEmpty: Bool {
+        animes.isEmpty && mangas.isEmpty && ranobe.isEmpty && characters.isEmpty
+            && people.isEmpty && mangakas.isEmpty && seyu.isEmpty && producers.isEmpty
+    }
 }
 
 struct FavouritesResponse: Codable {
@@ -517,6 +543,10 @@ struct FavouritesResponse: Codable {
     var mangas: [FavouriteItem]?
     var ranobe: [FavouriteItem]?
     var characters: [FavouriteItem]?
+    var people: [FavouriteItem]?
+    var mangakas: [FavouriteItem]?
+    var seyu: [FavouriteItem]?
+    var producers: [FavouriteItem]?
 }
 
 struct HistoryTarget: Codable, Hashable {
