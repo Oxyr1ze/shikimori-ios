@@ -533,17 +533,6 @@ final class AuthManager: ObservableObject {
         return all
     }
 
-    /// Меняет прогресс. Сайт сам переносит тайтл в «Запланировано», когда прогресс сбрасывается в ноль:
-    /// если пользователь этого не просил, возвращаем прежний статус вторым запросом.
-    func setProgress(id: Int, episodes: Int? = nil, chapters: Int? = nil, keepStatus: String?) async throws -> UserRate {
-        var rate = try await updateRate(id: id, episodes: episodes, chapters: chapters)
-        let reset = (episodes ?? chapters ?? 1) == 0
-        if reset, let keep = keepStatus, rate.status != keep {
-            rate = try await updateRate(id: id, status: keep)
-        }
-        return rate
-    }
-
     func animeRates(status: String) async throws -> [RateEntry] {
         guard let user else { throw ShikiError.unauthorized }
         let q = [

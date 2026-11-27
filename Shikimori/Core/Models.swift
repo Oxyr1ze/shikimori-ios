@@ -593,6 +593,7 @@ struct CharacterDetail: Codable {
     var altname: String?
     var japanese: String?
     var image: ImageSet?
+    var gqlPoster: PosterURLs?
     var descriptionHtml: String?
     var seyu: [CastPerson]?
     var animes: [Media]?
@@ -603,7 +604,7 @@ struct CharacterDetail: Codable {
         if let r = russian, !r.isEmpty { return r }
         return name ?? ""
     }
-    var posterURLs: [URL] { urlList([image?.original, image?.preview, image?.x96]) + (ExternalImages.url("characters", id).map { [$0] } ?? []) }
+    var posterURLs: [URL] { urlList([image?.original, image?.preview, image?.x96, gqlPoster?.original, gqlPoster?.main, gqlPoster?.preview]) + (ExternalImages.url("characters", id).map { [$0] } ?? []) }
 }
 
 struct PersonRoleGroup: Codable {
@@ -624,6 +625,8 @@ struct PersonDetail: Codable {
     var japanese: String?
     var jobTitle: String?
     var image: ImageSet?
+    /// Картинка из GraphQL (poster): у части людей в обычных данных картинки нет, а здесь есть.
+    var gqlPoster: PosterURLs?
     var roles: [PersonRoleGroup]?
     var works: [PersonWork]?
     var topicId: Int?
@@ -636,7 +639,7 @@ struct PersonDetail: Codable {
         if let r = russian, !r.isEmpty { return r }
         return name ?? ""
     }
-    var posterURLs: [URL] { urlList([image?.original, image?.preview, image?.x96]) + (ExternalImages.url("people", id).map { [$0] } ?? []) }
+    var posterURLs: [URL] { urlList([image?.original, image?.preview, image?.x96, gqlPoster?.original, gqlPoster?.main, gqlPoster?.preview]) + (ExternalImages.url("people", id).map { [$0] } ?? []) }
 }
 
 

@@ -123,7 +123,10 @@ final class ListsModel: ObservableObject {
 struct ListsView: View {
     @StateObject private var model = ListsModel()
     @State private var search = ""
-    @State private var sort: ListSort = .site
+    // Выбор сортировки сохраняется и после закрытия приложения
+    @AppStorage("lists.sort") private var sortRaw = ListSort.added.rawValue
+    @AppStorage("lists.descending") private var descending = true
+    private var sort: ListSort { ListSort(rawValue: sortRaw) ?? .added }
 
     private var shown: [RateEntry] {
         var list = model.entries.filter { $0.media != nil }
@@ -134,6 +137,7 @@ struct ListsView: View {
                 return m.title.localizedCaseInsensitiveContains(q) || m.name.localizedCaseInsensitiveContains(q)
             }
         }
+        // сначала считаем «по убыванию» (новые, высокие, Я→А), для «по возрастанию» переворачиваем
         switch sort {
         case .site: break
         case .added, .updated:
@@ -141,13 +145,14 @@ struct ListsView: View {
             let pick: (RateEntry) -> String? = { sort == .added ? $0.createdAt : $0.updatedAt }
             let keyed = list.map { ($0, pick($0).flatMap(SharedDates.parse) ?? .distantPast) }
             list = keyed.sorted { $0.1 > $1.1 }.map(\.0)
-        case .name: list.sort { ($0.media?.title ?? "").localizedCompare($1.media?.title ?? "") == .orderedAscending }
+        case .name: list.sort { ($0.media?.title ?? "").localizedCompare($1.media?.title ?? "") == .orderedDescending }
         case .myScore: list.sort { ($0.score ?? 0) > ($1.score ?? 0) }
         case .siteScore: list.sort { (Double($0.media?.score ?? "") ?? 0) > (Double($1.media?.score ?? "") ?? 0) }
         case .progress:
             let isAnime = model.kind == .anime
             list.sort { (isAnime ? $0.episodes : $0.chapters) ?? 0 > (isAnime ? $1.episodes : $1.chapters) ?? 0 }
         }
+        if sort != .site && !descending { list.reverse() }
         return list
     }
 
@@ -196,8 +201,13 @@ struct ListsView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Menu {
-                        Picker("Сортировка", selection: $sort) {
-                            ForEach(ListSort.allCases) { Text($0.title).tag($0) }
+                        Picker("Сортировка", selection: $sortRaw) {
+                            ForEach(ListSort.allCases) { Text($0.title).tag($0.rawValue) }
+                        }
+                        Divider()
+                        Picker("Порядок", selection: $descending) {
+                            Text("По возрастанию").tag(false)
+                            Text("По убыванию").tag(true)
                         }
                     } label: {
                         Image(systemName: "arrow.up.arrow.down")

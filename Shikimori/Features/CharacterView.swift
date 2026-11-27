@@ -170,7 +170,9 @@ final class CharacterModel: ObservableObject {
     func load(id: Int) async {
         error = nil
         do {
+            async let gT = AuthManager.shared.fetchPersonPosters(ids: [id], field: "characters")
             var d = try await AuthManager.shared.character(id: id)
+            d.gqlPoster = await gT[id]
             detail = d
             if let html = d.descriptionHtml, !html.isEmpty {
                 description = CommentRenderer.render(html: html)
@@ -253,7 +255,9 @@ final class PersonModel: ObservableObject {
     func load(id: Int) async {
         error = nil
         do {
+            async let gT = AuthManager.shared.fetchPersonPosters(ids: [id], field: "people")
             var d = try await AuthManager.shared.person(id: id)
+            d.gqlPoster = await gT[id]
             let animeIDs = (d.works ?? []).compactMap { $0.anime?.id }
             let mangaIDs = (d.works ?? []).compactMap { $0.manga?.id }
             detail = d
