@@ -220,17 +220,32 @@ private struct FriendsPage: View {
 // MARK: - История
 
 extension HistoryItem {
-    var date: Date? {
-        guard let s = createdAt else { return nil }
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let g = ISO8601DateFormatter()
-        return f.date(from: s) ?? g.date(from: s)
+    var date: Date? { createdAt.flatMap(SharedDates.parse) }
+}
+
+/// Готовая к показу запись истории: текст и даты считаются один раз, а не при каждой отрисовке.
+struct HistEntry: Identifiable {
+    let id: Int
+    let title: String
+    let text: String
+    let dateText: String
+    let date: Date?
+    let target: HistoryTarget?
+
+    init?(_ item: HistoryItem) {
+        let text = item.plainDescription
+        guard !text.isEmpty else { return nil }
+        id = item.id
+        title = item.target?.title ?? ""
+        self.text = text
+        dateText = item.dateText
+        date = item.date
+        target = item.target
     }
 }
 
 private struct HistoryRow: View {
-    let item: HistoryItem
+    let item: HistEntry
 
     var body: some View {
         let kind = item.target?.kind ?? .anime
@@ -241,10 +256,10 @@ private struct HistoryRow: View {
                 .frame(width: 32, height: 32)
                 .background(Theme.accent.opacity(0.9), in: Circle())
             VStack(alignment: .leading, spacing: 3) {
-                if let t = item.target, !t.title.isEmpty {
-                    Text(t.title).font(.subheadline.weight(.bold)).multilineTextAlignment(.leading)
+                if !item.title.isEmpty {
+                    Text(item.title).font(.subheadline.weight(.bold)).multilineTextAlignment(.leading)
                 }
-                Text(item.plainDescription).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.leading)
+                Text(item.text).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.leading)
             }
             Spacer(minLength: 6)
             Text(item.dateText).font(.caption).foregroundStyle(.tertiary).multilineTextAlignment(.trailing)
@@ -268,11 +283,11 @@ struct ActivitySection: View {
     let history: [HistoryItem]
 
     var body: some View {
-        let items = history.filter { !$0.plainDescription.isEmpty }
+        let items = history.prefix(12).compactMap(HistEntry.init).prefix(5)
         if !items.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Недавняя активность").font(.title3.weight(.bold))
-                ForEach(items.prefix(5)) { HistoryRow(item: $0) }
+                ForEach(Array(items)) { HistoryRow(item: $0) }
                 NavigationLink { HistoryScreen(userID: userID, nickname: nickname) } label: {
                     HStack {
                         Label("История", systemImage: "clock.arrow.circlepath").font(.body.weight(.semibold))
@@ -289,32 +304,69 @@ struct ActivitySection: View {
     }
 }
 
+struct HistGroup: Identifiable {
+    let title: String
+    let items: [HistEntry]
+    var id: String { title }
+}
+
 @MainActor
 private final class HistoryModel: ObservableObject {
     let userID: Int
-    @Published var items: [HistoryItem] = []
+    /// Записи, уже разложенные по периодам (считается один раз при загрузке).
+    @Published var groups: [HistGroup] = []
+    private var entries: [HistEntry] = []
     @Published var loading = false
     @Published var error: String?
     @Published var finished = false
     var targetType: String?
     private var page = 1
     private var generation = 0
+    private var seen = Set<Int>()
     private let limit = 50
 
+    var isEmpty: Bool { entries.isEmpty }
+
     init(userID: Int) { self.userID = userID }
+
+    static func group(_ list: [HistEntry]) -> [HistGroup] {
+        let cal = Calendar.current
+        let startToday = cal.startOfDay(for: Date())
+        var order: [String] = []
+        var map: [String: [HistEntry]] = [:]
+        for item in list {
+            let title: String
+            if let d = item.date {
+                let days = cal.dateComponents([.day], from: cal.startOfDay(for: d), to: startToday).day ?? 0
+                if days <= 0 { title = "Сегодня" }
+                else if days == 1 { title = "Вчера" }
+                else if days < 7 { title = "На этой неделе" }
+                else if days < 14 { title = "На прошлой неделе" }
+                else if days < 31 { title = "В течение месяца" }
+                else { let m = SharedDates.monthYear.string(from: d); title = m.prefix(1).uppercased() + m.dropFirst() }
+            } else {
+                title = "Раньше"
+            }
+            if map[title] == nil { order.append(title) }
+            map[title, default: []].append(item)
+        }
+        return order.map { HistGroup(title: $0, items: map[$0] ?? []) }
+    }
 
     func reload() async {
         generation += 1
         page = 1
         finished = false
-        items = []
+        entries = []
+        groups = []
+        seen = []
         error = nil
         loading = false
         await more()
     }
 
-    func more(after current: HistoryItem? = nil) async {
-        if let current, !items.suffix(8).contains(where: { $0.id == current.id }) { return }
+    func more(after current: HistEntry? = nil) async {
+        if let current, !entries.suffix(8).contains(where: { $0.id == current.id }) { return }
         guard !finished, !loading else { return }
         loading = true
         error = nil
@@ -322,8 +374,11 @@ private final class HistoryModel: ObservableObject {
         do {
             let result = try await AuthManager.shared.historyPage(id: userID, page: page, limit: limit, targetType: targetType)
             guard gen == generation else { loading = false; return }
-            let known = Set(items.map(\.id))
-            items += result.filter { !known.contains($0.id) && !$0.plainDescription.isEmpty }
+            for item in result where !seen.contains(item.id) {
+                seen.insert(item.id)
+                if let e = HistEntry(item) { entries.append(e) }
+            }
+            groups = HistoryModel.group(entries)
             finished = result.count < limit
             page += 1
         } catch is CancellationError {
@@ -345,44 +400,9 @@ struct HistoryScreen: View {
         _model = StateObject(wrappedValue: HistoryModel(userID: userID))
     }
 
-    private struct HistGroup: Identifiable {
-        let title: String
-        let items: [HistoryItem]
-        var id: String { title }
-    }
-
-    private var sections: [HistGroup] {
-        let cal = Calendar.current
-        let now = Date()
-        let startToday = cal.startOfDay(for: now)
-        let month = DateFormatter()
-        month.locale = Locale(identifier: "ru_RU")
-        month.dateFormat = "LLLL yyyy"
-
-        var order: [String] = []
-        var map: [String: [HistoryItem]] = [:]
-        for item in model.items {
-            let title: String
-            if let d = item.date {
-                let days = cal.dateComponents([.day], from: cal.startOfDay(for: d), to: startToday).day ?? 0
-                if days <= 0 { title = "Сегодня" }
-                else if days == 1 { title = "Вчера" }
-                else if days < 7 { title = "На этой неделе" }
-                else if days < 14 { title = "На прошлой неделе" }
-                else if days < 31 { title = "В течение месяца" }
-                else { let m = month.string(from: d); title = m.prefix(1).uppercased() + m.dropFirst() }
-            } else {
-                title = "Раньше"
-            }
-            if map[title] == nil { order.append(title) }
-            map[title, default: []].append(item)
-        }
-        return order.map { HistGroup(title: $0, items: map[$0] ?? []) }
-    }
-
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
+            LazyVStack(alignment: .leading, spacing: 14) {
                 Picker("Раздел", selection: $filter) {
                     Text("Всё").tag(0)
                     Text("Аниме").tag(1)
@@ -390,8 +410,8 @@ struct HistoryScreen: View {
                 }
                 .pickerStyle(.segmented)
 
-                ForEach(sections) { section in
-                    VStack(alignment: .leading, spacing: 8) {
+                ForEach(model.groups) { section in
+                    LazyVStack(alignment: .leading, spacing: 8) {
                         Text(section.title).font(.headline).foregroundStyle(.secondary).padding(.top, 6)
                         ForEach(section.items) { item in
                             HistoryRow(item: item)
@@ -404,7 +424,7 @@ struct HistoryScreen: View {
                 if let message = model.error {
                     ErrorBanner(message: message) { Task { await model.more() } }
                 }
-                if !model.loading && model.error == nil && model.items.isEmpty {
+                if !model.loading && model.error == nil && model.isEmpty {
                     ContentUnavailableView("История пуста", systemImage: "clock").padding(.top, 30)
                 }
             }
@@ -414,7 +434,7 @@ struct HistoryScreen: View {
         .background(AppBackground())
         .navigationTitle("История")
         .navigationBarTitleDisplayMode(.inline)
-        .task { if model.items.isEmpty { await model.reload() } }
+        .task { if model.isEmpty { await model.reload() } }
         .refreshable { await model.reload() }
         .onChange(of: filter) { _, v in
             model.targetType = v == 1 ? "Anime" : (v == 2 ? "Manga" : nil)

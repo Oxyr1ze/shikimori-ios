@@ -21,27 +21,52 @@ enum ImageCache {
         return folder.appendingPathComponent(hash)
     }
 
-    static func cached(_ url: URL) -> UIImage? {
-        let key = url.absoluteString as NSString
+    /// Уменьшенная копия: декодируется сразу (не на главном потоке при прокрутке), занимает мало памяти.
+    private static func decode(_ data: Data, maxPixel: CGFloat?) -> UIImage? {
+        guard let maxPixel else { return UIImage(data: data) }
+        let opts: [CFString: Any] = [kCGImageSourceShouldCache: false]
+        guard let src = CGImageSourceCreateWithData(data as CFData, opts as CFDictionary) else { return UIImage(data: data) }
+        let thumbOpts: [CFString: Any] = [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceShouldCacheImmediately: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: maxPixel
+        ]
+        guard let cg = CGImageSourceCreateThumbnailAtIndex(src, 0, thumbOpts as CFDictionary) else { return UIImage(data: data) }
+        return UIImage(cgImage: cg)
+    }
+
+    private static func memKey(_ url: URL, _ maxPixel: CGFloat?) -> NSString {
+        "\(url.absoluteString)|\(Int(maxPixel ?? 0))" as NSString
+    }
+
+    static func cached(_ url: URL, maxPixel: CGFloat? = nil) -> UIImage? {
+        let key = memKey(url, maxPixel)
         if let m = memory.object(forKey: key) { return m }
-        guard let data = try? Data(contentsOf: file(url)), let img = UIImage(data: data) else { return nil }
+        guard let data = try? Data(contentsOf: file(url)), let img = decode(data, maxPixel: maxPixel) else { return nil }
         memory.setObject(img, forKey: key)
         return img
     }
 
-    static func fetch(_ original: URL) async -> UIImage? {
+    /// Картинка из памяти без обращения к диску (чтобы показать сразу, без мигания).
+    static func inMemory(_ url: URL, maxPixel: CGFloat?) -> UIImage? {
+        memory.object(forKey: memKey(url, maxPixel))
+    }
+
+    static func fetch(_ original: URL, maxPixel: CGFloat? = nil) async -> UIImage? {
         // запасной адрес (shikifb://…) сначала превращаем в настоящий
         var url = original
         if ExternalImages.isFallback(original) {
             guard let real = await ExternalImages.resolve(original) else { return nil }
             url = real
         }
-        if let c = cached(url) { return c }
+        if let c = await Task.detached(priority: .userInitiated, operation: { cached(url, maxPixel: maxPixel) }).value { return c }
         guard let (data, resp) = try? await URLSession.shared.data(from: url),
-              (resp as? HTTPURLResponse)?.statusCode == 200,
-              let img = UIImage(data: data) else { return nil }
+              (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+        let img = await Task.detached(priority: .userInitiated) { decode(data, maxPixel: maxPixel) }.value
+        guard let img else { return nil }
         try? data.write(to: file(url), options: .atomic)
-        memory.setObject(img, forKey: url.absoluteString as NSString)
+        memory.setObject(img, forKey: memKey(url, maxPixel))
         return img
     }
 }
@@ -51,6 +76,8 @@ struct RemoteImage: View {
     let urls: [URL]
     /// Значок, если картинки нет нигде (постер, человек).
     var placeholder: String? = nil
+    /// Наибольшая сторона в пикселях (для лент и сеток хватает 720; полноэкранные просмотрщики грузят оригинал отдельно).
+    var maxPixel: CGFloat? = 720
     @State private var image: UIImage?
     @State private var failed = false
 
@@ -70,7 +97,7 @@ struct RemoteImage: View {
                 let real: URL?
                 if ExternalImages.isFallback(u) { real = await ExternalImages.resolve(u) } else { real = u }
                 guard let real else { continue }
-                if let img = await ImageCache.fetch(real) {
+                if let img = await ImageCache.fetch(real, maxPixel: maxPixel) {
                     image = img
                     return
                 }
@@ -123,7 +150,10 @@ struct ScoreBadge: View {
         }
         .padding(.horizontal, 8)
         .padding(.vertical, 4)
-        .glassEffect(.regular, in: .capsule)
+        // Лёгкая «стеклянная» плашка без Liquid Glass: на десятках карточек настоящее стекло тормозит прокрутку
+        .background(.ultraThinMaterial, in: Capsule())
+        .background(Capsule().fill(.black.opacity(0.25)))
+        .environment(\.colorScheme, .dark)
     }
 }
 
@@ -186,7 +216,7 @@ struct MediaRow: View {
                     .font(.title3.weight(.bold))
                     .padding(.horizontal, 20)
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(alignment: .top, spacing: 12) {
+                    LazyHStack(alignment: .top, spacing: 12) {
                         ForEach(items) { item in
                             NavigationLink {
                                 TitleView(ref: MediaRef(id: item.id, kind: kind))

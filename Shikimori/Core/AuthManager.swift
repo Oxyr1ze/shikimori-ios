@@ -333,6 +333,22 @@ final class AuthManager: ObservableObject {
         fav.mangakas = (r.mangakas ?? []).map { $0.person(kind: "people") }
         fav.seyu = (r.seyu ?? []).map { $0.person(kind: "people") }
         fav.producers = (r.producers ?? []).map { $0.person(kind: "people") }
+        // Настоящие картинки (а не миниатюры из списка избранного): персонажи отдельно, люди одним запросом
+        fav.characters = await withPosters(fav.characters, field: "characters")
+        let allPeople = fav.people + fav.mangakas + fav.seyu + fav.producers
+        if !allPeople.isEmpty {
+            let posters = await fetchPersonPosters(ids: allPeople.map(\.id), field: "people")
+            func fix(_ list: [CastPerson]) -> [CastPerson] {
+                list.map { person in
+                    guard let p = posters[person.id] else { return person }
+                    var c = person
+                    c.image = ImageSet(original: p.original ?? p.main, preview: p.main ?? p.original, x96: p.preview ?? p.main, x48: p.preview ?? p.main)
+                    return c
+                }
+            }
+            fav.people = fix(fav.people); fav.mangakas = fix(fav.mangakas)
+            fav.seyu = fix(fav.seyu); fav.producers = fix(fav.producers)
+        }
         let pa = await fetchPosters(ids: fav.animes.map(\.id), kind: .anime)
         for i in fav.animes.indices { fav.animes[i].posterURLs = pa[fav.animes[i].id] }
         let pm = await fetchPosters(ids: fav.mangas.map(\.id), kind: .manga)
@@ -433,6 +449,48 @@ final class AuthManager: ObservableObject {
             }
         }
         return result
+    }
+
+    /// Настоящие картинки персонажей и людей (GraphQL, поле poster): в списке избранного сайт отдаёт только маленькие миниатюры.
+    func fetchPersonPosters(ids: [Int], field: String) async -> [Int: PosterURLs] {
+        var result: [Int: PosterURLs] = [:]
+        var missing: [Int] = []
+        for id in ids {
+            if let cached = posterCache["\(field)-\(id)"] { result[id] = cached } else { missing.append(id) }
+        }
+        var start = 0
+        while start < missing.count {
+            let chunk = Array(missing[start..<min(start + 50, missing.count)])
+            start += 50
+            let list = chunk.map(String.init).joined(separator: ",")
+            let query = "{ \(field)(ids: \"\(list)\", limit: 50) { id poster { originalUrl mainUrl previewUrl } } }"
+            guard let data = try? await send("POST", "/api/graphql", json: ["query": query]),
+                  let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let dataObj = root["data"] as? [String: Any],
+                  let rows = dataObj[field] as? [[String: Any]] else { continue }
+            for row in rows {
+                let rawID = row["id"]
+                let id = (rawID as? Int) ?? Int((rawID as? String) ?? "")
+                guard let id, let p = row["poster"] as? [String: Any] else { continue }
+                let urls = PosterURLs(original: p["originalUrl"] as? String,
+                                      main: p["mainUrl"] as? String,
+                                      preview: p["previewUrl"] as? String)
+                posterCache["\(field)-\(id)"] = urls
+                result[id] = urls
+            }
+        }
+        return result
+    }
+
+    private func withPosters(_ list: [CastPerson], field: String) async -> [CastPerson] {
+        guard !list.isEmpty else { return list }
+        let posters = await fetchPersonPosters(ids: list.map(\.id), field: field)
+        return list.map { person in
+            guard let p = posters[person.id] else { return person }
+            var copy = person
+            copy.image = ImageSet(original: p.original ?? p.main, preview: p.main ?? p.original, x96: p.preview ?? p.main, x48: p.preview ?? p.main)
+            return copy
+        }
     }
 
     /// Список манги (kind == .manga) или ранобэ (kind == .ranobe): оба лежат в manga_rates.

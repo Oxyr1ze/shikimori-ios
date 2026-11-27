@@ -86,7 +86,8 @@ struct RateBadge: View {
                     .font(.system(size: d * 0.46, weight: .bold))
                     .foregroundStyle(raw == "planned" ? Color(red: 0.09, green: 0.38, blue: 0.58) : .white)
                     .frame(width: d, height: d)
-                    .glassEffect(.regular.tint(raw == "planned" ? Color.white.opacity(0.85) : listStatusColor(raw).opacity(0.9)), in: Circle())
+                    .background(Circle().fill(raw == "planned" ? Color.white.opacity(0.92) : listStatusColor(raw).opacity(0.95)))
+                    .overlay(Circle().strokeBorder(.white.opacity(0.45), lineWidth: 1))
                     .padding(max(5, d * 0.28))
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             }

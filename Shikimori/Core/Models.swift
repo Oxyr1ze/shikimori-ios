@@ -444,15 +444,8 @@ struct Comment: Codable, Identifiable, Hashable {
     }
 
     var dateText: String {
-        guard let s = createdAt else { return "" }
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let g = ISO8601DateFormatter()
-        guard let d = f.date(from: s) ?? g.date(from: s) else { return "" }
-        let r = RelativeDateTimeFormatter()
-        r.locale = Locale(identifier: "ru_RU")
-        r.unitsStyle = .short
-        return r.localizedString(for: d, relativeTo: Date())
+        guard let s = createdAt, let d = SharedDates.parse(s) else { return "" }
+        return SharedDates.relative.localizedString(for: d, relativeTo: Date())
     }
 }
 
@@ -579,15 +572,8 @@ struct HistoryItem: Codable, Identifiable, Hashable {
     }
 
     var dateText: String {
-        guard let s = createdAt else { return "" }
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let g = ISO8601DateFormatter()
-        guard let d = f.date(from: s) ?? g.date(from: s) else { return "" }
-        let r = RelativeDateTimeFormatter()
-        r.locale = Locale(identifier: "ru_RU")
-        r.unitsStyle = .short
-        return r.localizedString(for: d, relativeTo: Date())
+        guard let s = createdAt, let d = SharedDates.parse(s) else { return "" }
+        return SharedDates.relative.localizedString(for: d, relativeTo: Date())
     }
 }
 
@@ -806,4 +792,28 @@ extension AuthManager {
         let r: FranchiseResponse? = try? await get("/api/\(ref.kind.path)/\(ref.id)/franchise")
         return r?.nodes ?? []
     }
+}
+
+
+/// Общие форматтеры дат: создавать их заново для каждой строки списка очень дорого (списки лагали).
+enum SharedDates {
+    private static let withFraction: ISO8601DateFormatter = {
+        let f = ISO8601DateFormatter()
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f
+    }()
+    private static let plain = ISO8601DateFormatter()
+    static let relative: RelativeDateTimeFormatter = {
+        let r = RelativeDateTimeFormatter()
+        r.locale = Locale(identifier: "ru_RU")
+        r.unitsStyle = .short
+        return r
+    }()
+    static let monthYear: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "ru_RU")
+        f.dateFormat = "LLLL yyyy"
+        return f
+    }()
+    static func parse(_ s: String) -> Date? { withFraction.date(from: s) ?? plain.date(from: s) }
 }
