@@ -4,6 +4,20 @@ import SwiftUI
 struct ForumSection: Identifiable, Hashable {
     let id: String
     let title: String
+    var icon: String {
+        switch id {
+        case "news": return "newspaper"
+        case "animanga": return "play.rectangle"
+        case "site": return "gearshape"
+        case "offtopic": return "bubble.left.and.bubble.right"
+        case "games": return "gamecontroller"
+        case "vn": return "book"
+        case "contests": return "trophy"
+        case "critiques": return "text.quote"
+        case "collections": return "square.stack"
+        default: return "doc.text"
+        }
+    }
 
     static let all: [ForumSection] = [
         ForumSection(id: "news", title: "Новости"),
@@ -24,6 +38,26 @@ struct ForumRef: Codable, Hashable {
     var name: String?
 }
 
+/// Тайтл, к которому привязана тема (если есть): его постер показывается в ленте. Разбор терпимый: любые поля могут отсутствовать.
+struct TopicLinked: Codable, Hashable {
+    var id: Int?
+    var name: String?
+    var russian: String?
+    var image: ImageSet?
+
+    enum CodingKeys: String, CodingKey { case id, name, russian, image }
+
+    init(from decoder: Decoder) {
+        guard let c = try? decoder.container(keyedBy: CodingKeys.self) else { return }
+        id = try? c.decodeIfPresent(Int.self, forKey: .id)
+        name = try? c.decodeIfPresent(String.self, forKey: .name)
+        russian = try? c.decodeIfPresent(String.self, forKey: .russian)
+        image = try? c.decodeIfPresent(ImageSet.self, forKey: .image)
+    }
+
+    var imageURLs: [URL] { CastPerson(id: id ?? 0, name: name, russian: russian, image: image).imageURLs }
+}
+
 struct Topic: Codable, Identifiable, Hashable {
     var id: Int
     var topicTitle: String?
@@ -37,10 +71,17 @@ struct Topic: Codable, Identifiable, Hashable {
     var episode: Int?
     var forum: ForumRef?
     var user: ShikiUser?
+    var linked: TopicLinked?
 
     var title: String { (topicTitle?.isEmpty == false ? topicTitle : nil) ?? "Без названия" }
 
     var dateText: String { relativeDateText(createdAt) }
+
+    /// Адрес темы на сайте (для «Поделиться» и «Открыть на сайте»).
+    var siteURL: URL? { URL(string: "https://shikimori.io/topics/\(id)") }
+
+    /// Ссылка на постер из привязанного тайтла.
+    var posterURLs: [URL] { linked?.imageURLs ?? [] }
 
     /// Тема как «комментарий»: так её разбирает общий разборщик разметки.
     func makeBlocks() -> [CBlock] {
@@ -64,16 +105,22 @@ struct Topic: Codable, Identifiable, Hashable {
     }
 }
 
-func relativeDateText(_ s: String?) -> String {
-    guard let s else { return "" }
+private let topicDateISOFrac: ISO8601DateFormatter = {
     let f = ISO8601DateFormatter()
     f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-    let g = ISO8601DateFormatter()
-    guard let d = f.date(from: s) ?? g.date(from: s) else { return "" }
+    return f
+}()
+private let topicDateISO = ISO8601DateFormatter()
+private let topicDateRelative: RelativeDateTimeFormatter = {
     let r = RelativeDateTimeFormatter()
     r.locale = Locale(identifier: "ru_RU")
     r.unitsStyle = .short
-    return r.localizedString(for: d, relativeTo: Date())
+    return r
+}()
+
+func relativeDateText(_ s: String?) -> String {
+    guard let s, let d = topicDateISOFrac.date(from: s) ?? topicDateISO.date(from: s) else { return "" }
+    return topicDateRelative.localizedString(for: d, relativeTo: Date())
 }
 
 extension AuthManager {
@@ -145,20 +192,7 @@ struct ForumView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(ForumSection.all) { s in
-                            Button { model.section = s } label: {
-                                Text(s.title)
-                                    .font(.subheadline.weight(.semibold))
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 8)
-                            }
-                            .buttonStyle(.plain)
-                            .glassEffect(model.section == s ? .regular.tint(Theme.accent.opacity(0.6)) : .regular, in: .capsule)
-                        }
-                    }
-                }
+                sectionTabs
 
                 ForEach(model.topics) { topic in
                     NavigationLink {
@@ -171,7 +205,14 @@ struct ForumView: View {
                         if topic.id == model.topics.last?.id { Task { await model.loadMore() } }
                     }
                 }
-                if model.loading { ProgressView().frame(maxWidth: .infinity).padding() }
+                if model.loading && model.topics.isEmpty {
+                    ForEach(0..<6, id: \.self) { _ in skeleton }
+                } else if model.loading {
+                    ProgressView().frame(maxWidth: .infinity).padding()
+                }
+                if !model.loading && model.topics.isEmpty && model.error == nil {
+                    ContentUnavailableView("Пока ничего нет", systemImage: "text.bubble")
+                }
                 if let message = model.error {
                     ErrorBanner(message: message) { Task { await model.reload() } }
                 }
@@ -180,21 +221,74 @@ struct ForumView: View {
             .padding(.bottom, 100)
         }
         .background(AppBackground())
-        .navigationTitle("Форум")
+        .navigationTitle(model.section.title)
         .navigationBarTitleDisplayMode(.inline)
         .task(id: model.section) { await model.reload() }
         .refreshable { await model.reload() }
     }
 
+    /// Разделы: лёгкие плашки со значками (без стекла на каждой, чтобы не тормозила прокрутка).
+    private var sectionTabs: some View {
+        ScrollViewReader { proxy in
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(ForumSection.all) { s in
+                        let on = model.section == s
+                        Button {
+                            withAnimation(.snappy) { model.section = s }
+                        } label: {
+                            Label(s.title, systemImage: s.icon)
+                                .font(.subheadline.weight(.semibold))
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 9)
+                                .foregroundStyle(on ? Color.white : Color.primary)
+                                .background(on ? Theme.accent : Theme.card, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .id(s.id)
+                    }
+                }
+            }
+            .onChange(of: model.section) { _, new in
+                withAnimation { proxy.scrollTo(new.id, anchor: .center) }
+            }
+        }
+    }
+
+    private var skeleton: some View {
+        RoundedRectangle(cornerRadius: 20, style: .continuous)
+            .fill(Theme.card)
+            .frame(height: 96)
+            .redacted(reason: .placeholder)
+    }
+
     private func row(_ t: Topic) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(t.title).font(.headline).multilineTextAlignment(.leading)
-            HStack(spacing: 10) {
-                if let n = t.user?.nickname { Text(n).font(.caption.weight(.semibold)) }
-                Text(t.dateText).font(.caption).foregroundStyle(.secondary)
-                Spacer()
-                Label("\(t.commentsCount ?? 0)", systemImage: "bubble.left")
-                    .font(.caption).foregroundStyle(.secondary)
+        HStack(alignment: .top, spacing: 12) {
+            let posters = t.posterURLs
+            if !posters.isEmpty {
+                PosterView(urls: posters, radius: 10)
+                    .frame(width: 58)
+            }
+            VStack(alignment: .leading, spacing: 8) {
+                let chips = t.chips
+                if !chips.isEmpty {
+                    Text(chips.joined(separator: " · "))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(Theme.accent)
+                }
+                Text(t.title)
+                    .font(.headline)
+                    .multilineTextAlignment(.leading)
+                    .lineLimit(3)
+                HStack(spacing: 8) {
+                    if let n = t.user?.nickname {
+                        Text(n).font(.caption.weight(.semibold)).lineLimit(1)
+                    }
+                    Text(t.dateText).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Spacer(minLength: 4)
+                    Label("\(t.commentsCount ?? 0)", systemImage: "bubble.left")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
         }
         .padding(14)
@@ -222,7 +316,14 @@ struct TopicView: View {
         let t = full ?? topic
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                Text(t.title).font(.title.weight(.heavy))
+                HStack(alignment: .top, spacing: 14) {
+                    let posters = t.posterURLs
+                    if !posters.isEmpty {
+                        PosterView(urls: posters, radius: 14).frame(width: 86)
+                    }
+                    Text(t.title).font(.title2.weight(.heavy)).fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
 
                 authorLink(t.user) {
                 HStack(spacing: 10) {
@@ -246,7 +347,8 @@ struct TopicView: View {
                                 .font(.footnote.weight(.semibold))
                                 .padding(.horizontal, 11)
                                 .padding(.vertical, 5)
-                                .overlay(Capsule().stroke(Color.secondary.opacity(0.5), lineWidth: 1))
+                                .foregroundStyle(Theme.accent)
+                                .background(Theme.accent.opacity(0.14), in: Capsule())
                         }
                     }
                 }
@@ -259,8 +361,9 @@ struct TopicView: View {
                     CommentsView(topicID: t.id, title: t.title)
                 } label: {
                     HStack {
-                        Label("Комментарии (\(t.commentsCount ?? 0))", systemImage: "bubble.left.and.bubble.right")
+                        Label("Комментарии (\(t.commentsCount ?? 0))", systemImage: "bubble.left.and.bubble.right.fill")
                             .font(.body.weight(.semibold))
+                            .foregroundStyle(Theme.accent)
                         Spacer()
                         Image(systemName: "chevron.right").foregroundStyle(.secondary)
                     }
@@ -275,6 +378,13 @@ struct TopicView: View {
         }
         .background(AppBackground())
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            if let url = t.siteURL {
+                ToolbarItem(placement: .topBarTrailing) {
+                    ShareLink(item: url) { Image(systemName: "square.and.arrow.up") }
+                }
+            }
+        }
         .task {
             blocks = topic.makeBlocks()
             do {
