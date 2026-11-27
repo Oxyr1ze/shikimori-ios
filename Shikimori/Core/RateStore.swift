@@ -84,9 +84,9 @@ struct RateBadge: View {
                 let d = max(20, min(30, g.size.width * 0.22))
                 Image(systemName: rateGlyph(raw))
                     .font(.system(size: d * 0.46, weight: .bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(raw == "planned" ? Color(red: 0.09, green: 0.38, blue: 0.58) : .white)
                     .frame(width: d, height: d)
-                    .glassEffect(.regular, in: Circle())
+                    .glassEffect(.regular.tint(raw == "planned" ? Color.white.opacity(0.85) : listStatusColor(raw).opacity(0.9)), in: Circle())
                     .padding(max(5, d * 0.28))
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
             }

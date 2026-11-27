@@ -262,13 +262,15 @@ struct FlowLayout: Layout {
 
 /// Цвет статуса в списке (одинаковый в профиле и на странице тайтла).
 func listStatusColor(_ status: String) -> Color {
+    // Цвета с сайта Shikimori (исходники стилей): смотрю — #176093 (чуть светлее для тёмной темы),
+    // просмотрено — #419541, брошено — #ca4929, отложено — #7b8084, в планах — светлый с синим значком.
     switch status {
-    case "watching": return .green
-    case "planned": return .blue
-    case "completed": return .purple
-    case "on_hold": return .orange
-    case "dropped": return .red
-    case "rewatching": return .teal
+    case "watching", "reading": return Color(red: 0.13, green: 0.50, blue: 0.78)
+    case "rewatching", "rereading": return Color(red: 0.13, green: 0.50, blue: 0.78)
+    case "planned": return Color(red: 0.56, green: 0.71, blue: 0.84)
+    case "completed": return Color(red: 0x41/255, green: 0x95/255, blue: 0x41/255)
+    case "on_hold": return Color(red: 0x7b/255, green: 0x80/255, blue: 0x84/255)
+    case "dropped": return Color(red: 0xca/255, green: 0x49/255, blue: 0x29/255)
     default: return .gray
     }
 }

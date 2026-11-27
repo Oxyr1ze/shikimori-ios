@@ -181,24 +181,24 @@ private struct MenuRow<Content: View>: View {
     @ViewBuilder var content: () -> Content
 
     var body: some View {
-        HStack {
-            Text(verbatim: title)
-            Spacer()
-            if multi {
-                Menu { content() } label: { label }
-                    .menuActionDismissBehavior(.disabled)
-            } else {
-                Menu { content() } label: { label }
-            }
+        if multi {
+            Menu { content() } label: { label }
+                .menuActionDismissBehavior(.disabled)
+        } else {
+            Menu { content() } label: { label }
         }
     }
 
     private var label: some View {
         HStack(spacing: 4) {
+            Text(verbatim: title).foregroundStyle(Color.primary)
+            Spacer(minLength: 8)
             Text(verbatim: summary.isEmpty ? "Не важно" : summary).lineLimit(1)
             Image(systemName: "chevron.up.chevron.down").font(.footnote)
         }
         .foregroundStyle(summary.isEmpty ? Color.secondary : Theme.accent)
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
     }
 }
 
