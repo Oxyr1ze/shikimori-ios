@@ -339,6 +339,8 @@ struct RateEntry: Codable, Identifiable, Hashable {
     var chapters: Int?
     var anime: Media?
     var manga: Media?
+    var createdAt: String?
+    var updatedAt: String?
     /// Произведение из записи списка (аниме или манга/ранобэ).
     var media: Media? { anime ?? manga }
 }

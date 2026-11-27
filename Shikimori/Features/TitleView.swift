@@ -124,11 +124,17 @@ final class TitleModel: ObservableObject {
         if ref.kind == .anime {
             var next = max(0, (rate.episodes ?? 0) + delta)
             if let total = detail?.episodes, total > 0 { next = min(next, total) }
-            await run { detail?.userRate = try await AuthManager.shared.updateRate(id: rate.id, episodes: next) }
+            await run {
+                detail?.userRate = try await AuthManager.shared.setProgress(id: rate.id, episodes: next, keepStatus: rate.status)
+                RateStore.shared.set(RateStore.key(ref.kind, ref.id), status: detail?.userRate?.status)
+            }
         } else {
             var next = max(0, (rate.chapters ?? 0) + delta)
             if let total = detail?.chapters, total > 0 { next = min(next, total) }
-            await run { detail?.userRate = try await AuthManager.shared.updateRate(id: rate.id, chapters: next) }
+            await run {
+                detail?.userRate = try await AuthManager.shared.setProgress(id: rate.id, chapters: next, keepStatus: rate.status)
+                RateStore.shared.set(RateStore.key(ref.kind, ref.id), status: detail?.userRate?.status)
+            }
         }
     }
 

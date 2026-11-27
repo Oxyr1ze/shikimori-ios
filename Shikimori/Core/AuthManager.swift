@@ -512,18 +512,36 @@ final class AuthManager: ObservableObject {
         return entries
     }
 
-    /// Все страницы списка (раньше брались только первые 200 записей): идём по страницам, пока они не кончатся.
+    /// Весь список целиком. Сайт отдаёт до 5000 записей за запрос; за концом списка он возвращает null (это не ошибка).
     private func allPages(_ path: String, base: [URLQueryItem]) async throws -> [RateEntry] {
+        let limit = 5000
         var all: [RateEntry] = []
         var seen = Set<Int>()
-        for page in 1...20 {
-            let q = base.filter { $0.name != "limit" } + [URLQueryItem(name: "limit", value: "500"), URLQueryItem(name: "page", value: String(page))]
-            let chunk: [RateEntry] = try await get(path, query: q)
+        for page in 1...10 {
+            let q = base.filter { $0.name != "limit" } + [URLQueryItem(name: "limit", value: String(limit)), URLQueryItem(name: "page", value: String(page))]
+            let chunk: [RateEntry]
+            if page == 1 {
+                chunk = try await get(path, query: q)
+            } else {
+                chunk = (try? await get(path, query: q) as [RateEntry]?) ?? []
+            }
             let fresh = chunk.filter { seen.insert($0.id).inserted }
-            if fresh.isEmpty { break }
             all += fresh
+            // сайт присылает limit+1 запись, если дальше есть ещё страница
+            if fresh.isEmpty || chunk.count <= limit { break }
         }
         return all
+    }
+
+    /// Меняет прогресс. Сайт сам переносит тайтл в «Запланировано», когда прогресс сбрасывается в ноль:
+    /// если пользователь этого не просил, возвращаем прежний статус вторым запросом.
+    func setProgress(id: Int, episodes: Int? = nil, chapters: Int? = nil, keepStatus: String?) async throws -> UserRate {
+        var rate = try await updateRate(id: id, episodes: episodes, chapters: chapters)
+        let reset = (episodes ?? chapters ?? 1) == 0
+        if reset, let keep = keepStatus, rate.status != keep {
+            rate = try await updateRate(id: id, status: keep)
+        }
+        return rate
     }
 
     func animeRates(status: String) async throws -> [RateEntry] {

@@ -1,11 +1,13 @@
 import SwiftUI
 
 enum ListSort: String, CaseIterable, Identifiable {
-    case site, name, myScore, siteScore, progress
+    case site, added, updated, name, myScore, siteScore, progress
     var id: String { rawValue }
     var title: String {
         switch self {
         case .site: return "Как на сайте"
+        case .added: return "По дате добавления"
+        case .updated: return "По дате обновления"
         case .name: return "По названию"
         case .myScore: return "По моей оценке"
         case .siteScore: return "По оценке на сайте"
@@ -134,6 +136,11 @@ struct ListsView: View {
         }
         switch sort {
         case .site: break
+        case .added, .updated:
+            // сначала новые; даты разбираем один раз, а не при каждом сравнении
+            let pick: (RateEntry) -> String? = { sort == .added ? $0.createdAt : $0.updatedAt }
+            let keyed = list.map { ($0, pick($0).flatMap(SharedDates.parse) ?? .distantPast) }
+            list = keyed.sorted { $0.1 > $1.1 }.map(\.0)
         case .name: list.sort { ($0.media?.title ?? "").localizedCompare($1.media?.title ?? "") == .orderedAscending }
         case .myScore: list.sort { ($0.score ?? 0) > ($1.score ?? 0) }
         case .siteScore: list.sort { (Double($0.media?.score ?? "") ?? 0) > (Double($1.media?.score ?? "") ?? 0) }
