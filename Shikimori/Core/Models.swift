@@ -562,6 +562,9 @@ struct HistoryTarget: Codable, Hashable {
     var name: String?
     var russian: String?
     var url: String?
+    var image: ImageSet?
+    var score: String?
+    var posterURLs: [URL] { urlList([image?.preview, image?.original, image?.x96]) }
     var title: String {
         if let r = russian, !r.isEmpty { return r }
         return name ?? ""

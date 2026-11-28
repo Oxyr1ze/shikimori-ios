@@ -376,10 +376,14 @@ struct TitleView: View {
                     NavigationLink {
                         CommentsView(topicID: topic, title: d.title)
                     } label: {
-                        Image(systemName: "bubble.left.and.bubble.right")
-                            .font(.headline)
-                            .padding(.vertical, 8)
-                            .padding(.horizontal, 6)
+                        HStack(spacing: 5) {
+                            Image(systemName: "bubble.left.and.bubble.right.fill")
+                                .font(.headline)
+                                .foregroundStyle(Theme.accent)
+                            CommentsCountText(topicID: topic)
+                        }
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 6)
                     }
                     .buttonStyle(.glass)
                     .accessibilityLabel("Комментарии")

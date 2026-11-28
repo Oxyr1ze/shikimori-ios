@@ -249,22 +249,28 @@ private struct HistoryRow: View {
 
     var body: some View {
         let kind = item.target?.kind ?? .anime
+        let posters = item.target?.posterURLs ?? []
         let content = HStack(alignment: .top, spacing: 12) {
-            Image(systemName: kind == .anime ? "play.fill" : "book.fill")
-                .font(.footnote.weight(.bold))
-                .foregroundStyle(.white)
-                .frame(width: 32, height: 32)
-                .background(Theme.accent.opacity(0.9), in: Circle())
-            VStack(alignment: .leading, spacing: 3) {
+            Color(UIColor.tertiarySystemFill)
+                .frame(width: 48, height: 70)
+                .overlay { RemoteImage(urls: posters, placeholder: kind == .anime ? "film" : "book.closed", maxPixel: 240) }
+                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+            VStack(alignment: .leading, spacing: 4) {
                 if !item.title.isEmpty {
-                    Text(item.title).font(.subheadline.weight(.bold)).multilineTextAlignment(.leading)
+                    Text(item.title).font(.subheadline.weight(.bold)).multilineTextAlignment(.leading).lineLimit(2)
                 }
-                Text(item.text).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.leading)
+                Text(item.text).font(.subheadline).foregroundStyle(.secondary).multilineTextAlignment(.leading).lineLimit(3)
+                HStack(spacing: 6) {
+                    Text(kind.title).font(.caption2.weight(.semibold)).foregroundStyle(Theme.accent)
+                    if let score = item.target?.score, let v = Double(score), v > 0 {
+                        Label(score, systemImage: "star.fill").font(.caption2).foregroundStyle(.secondary)
+                    }
+                    Spacer(minLength: 4)
+                    Text(item.dateText).font(.caption2).foregroundStyle(.tertiary)
+                }
             }
-            Spacer(minLength: 6)
-            Text(item.dateText).font(.caption).foregroundStyle(.tertiary).multilineTextAlignment(.trailing)
         }
-        .padding(12)
+        .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
 

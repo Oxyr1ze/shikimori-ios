@@ -203,13 +203,7 @@ struct UserContent: View {
             CommentsView(topicID: model.user.id, title: "Комментарии: \(model.user.nickname)",
                          type: "User", canPost: false)
         } label: {
-            HStack {
-                Label("Комментарии", systemImage: "text.bubble").font(.body.weight(.semibold))
-                Spacer()
-                Image(systemName: "chevron.right").foregroundStyle(.secondary)
-            }
-            .padding(16)
-            .background(Theme.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            CountedCommentsLabel(userID: model.user.id)
         }
         .buttonStyle(.plain)
     }

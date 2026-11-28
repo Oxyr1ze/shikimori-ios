@@ -40,16 +40,7 @@ struct CommentsLink: View {
     var body: some View {
         if let id = topicID, id > 0 {
             NavigationLink { CommentsView(topicID: id, title: title) } label: {
-                HStack(spacing: 12) {
-                    Image(systemName: "bubble.left.and.bubble.right.fill").foregroundStyle(Theme.accent)
-                    Text("Комментарии").font(.headline)
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.secondary)
-                }
-                .padding(14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(Theme.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                CountedCommentsLabel(topicID: id)
             }
             .buttonStyle(.plain)
         }

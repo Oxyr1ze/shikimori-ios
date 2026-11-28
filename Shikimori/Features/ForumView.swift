@@ -130,8 +130,28 @@ struct Topic: Codable, Identifiable, Hashable {
     var forum: ForumRef?
     var user: ShikiUser?
     var linked: TopicLinked?
+    var linkedId: Int?
+    var type: String?
 
-    var title: String { (topicTitle?.isEmpty == false ? topicTitle : nil) ?? "Без названия" }
+    /// Заголовок как на сайте: у тем про тайтл, клуб, рецензию, коллекцию название берётся у того, к чему тема привязана
+    /// (в самой теме сайт отдаёт общее «Обсуждение …»).
+    var title: String {
+        if isCritique, let t = linked?.target, !t.title.isEmpty {
+            let word = t.kind == .anime ? "аниме" : (t.kind == .manga ? "мангу" : "ранобэ")
+            return "Рецензия на \(word) «\(t.title)»"
+        }
+        let raw = topicTitle ?? ""
+        let generic = raw.isEmpty || raw.hasPrefix("Обсуждение")
+        if isCollection {
+            if let n = CollectionNames.shared.cached(linkedId) { return n }
+            return generic ? "Коллекция" : raw
+        }
+        if generic || type?.contains("EntryTopics") == true, let l = linked {
+            if let r = l.russian, !r.isEmpty { return r }
+            if let n = l.name, !n.isEmpty { return n }
+        }
+        return raw.isEmpty ? "Без названия" : raw
+    }
 
     var dateText: String { relativeDateText(createdAt) }
 
@@ -259,6 +279,7 @@ final class ForumModel: ObservableObject {
 
 struct ForumView: View {
     @StateObject private var model = ForumModel()
+    @ObservedObject private var names = CollectionNames.shared
 
     var body: some View {
         ScrollView {
@@ -334,7 +355,8 @@ struct ForumView: View {
     }
 
     private func row(_ t: Topic) -> some View {
-        HStack(alignment: .top, spacing: 12) {
+        _ = names.version
+        return HStack(alignment: .top, spacing: 12) {
             let posters = t.posterURLs
             if !posters.isEmpty {
                 PosterView(urls: posters, radius: 10)
@@ -365,11 +387,15 @@ struct ForumView: View {
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Theme.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .task(id: t.id) {
+            if t.isCollection, let id = t.linkedId { await CollectionNames.shared.ensure(id) }
+        }
     }
 }
 
 struct TopicView: View {
     let topic: Topic
+    @ObservedObject private var names = CollectionNames.shared
     @State private var full: Topic?
     @State private var blocks: [CBlock] = []
     @State private var collection: ParsedCollection?
@@ -385,8 +411,9 @@ struct TopicView: View {
     }
 
     var body: some View {
+        _ = names.version
         let t = full ?? topic
-        ScrollView {
+        return ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 HStack(alignment: .top, spacing: 14) {
                     let posters = t.posterURLs
@@ -447,15 +474,7 @@ struct TopicView: View {
                 NavigationLink {
                     CommentsView(topicID: t.id, title: t.title)
                 } label: {
-                    HStack {
-                        Label("Комментарии (\(t.commentsCount ?? 0))", systemImage: "bubble.left.and.bubble.right.fill")
-                            .font(.body.weight(.semibold))
-                            .foregroundStyle(Theme.accent)
-                        Spacer()
-                        Image(systemName: "chevron.right").foregroundStyle(.secondary)
-                    }
-                    .padding(16)
-                    .background(Theme.card, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                    CommentsCardLabel(count: String(t.commentsCount ?? 0))
                 }
                 .buttonStyle(.plain)
                 if let error { Text(error).font(.footnote).foregroundStyle(.red) }
@@ -471,6 +490,9 @@ struct TopicView: View {
                     ShareLink(item: url) { Image(systemName: "square.and.arrow.up") }
                 }
             }
+        }
+        .task(id: topic.linkedId) {
+            if topic.isCollection, let id = topic.linkedId { await CollectionNames.shared.ensure(id) }
         }
         .task {
             if topic.isCritique {

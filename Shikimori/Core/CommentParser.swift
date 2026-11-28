@@ -432,23 +432,37 @@ struct CommentBlocksView: View {
 struct CommentImage: View {
     let url: URL
     @State private var open = false
+    @State private var image: UIImage?
+    @State private var failed = false
+    @State private var attempt = 0
 
     var body: some View {
-        AsyncImage(url: url) { phase in
-            switch phase {
-            case .success(let image):
-                image.resizable().scaledToFit()
-            case .failure:
-                Label("Не удалось загрузить фото", systemImage: "photo")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            default:
-                ProgressView().frame(height: 80)
+        Group {
+            if let image {
+                Image(uiImage: image)
+                    .resizable().scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: 420, alignment: .leading)
+                    .onTapGesture { open = true }
+            } else if failed {
+                Button { failed = false; attempt += 1 } label: {
+                    Label("Не загрузилось. Нажмите, чтобы повторить", systemImage: "arrow.clockwise")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .padding(12)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(Color.secondary.opacity(0.12))
+                }
+                .buttonStyle(.plain)
+            } else {
+                ProgressView().frame(maxWidth: .infinity, minHeight: 90)
             }
         }
-        .frame(maxWidth: .infinity, maxHeight: 320, alignment: .leading)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .onTapGesture { open = true }
+        // Кэш на диске, уменьшенная копия, повтор при сбое: картинка не качается заново при каждом открытии
+        .task(id: "\(url.absoluteString)#\(attempt)") {
+            if image == nil { image = await ImageCache.fetch(url, maxPixel: 1400) }
+            failed = image == nil
+        }
         .fullScreenCover(isPresented: $open) {
             ImageViewer(images: [[url]], index: 0)
         }

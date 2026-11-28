@@ -61,8 +61,23 @@ enum ImageCache {
             url = real
         }
         if let c = await Task.detached(priority: .userInitiated, operation: { cached(url, maxPixel: maxPixel) }).value { return c }
-        guard let (data, resp) = try? await URLSession.shared.data(from: url),
-              (resp as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+        // http сайт-картинок заблокирован системой (ATS): переходим на https
+        if url.scheme == "http", var c = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            c.scheme = "https"
+            if let u = c.url { url = u }
+        }
+        var req = URLRequest(url: url, timeoutInterval: 20)
+        req.setValue(ShikiConfig.userAgent, forHTTPHeaderField: "User-Agent")
+        var loaded: Data?
+        for attempt in 0..<2 {
+            if let (data, resp) = try? await URLSession.shared.data(for: req) {
+                let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+                if code == 200 { loaded = data; break }
+                if code == 404 || code == 403 { break }
+            }
+            if attempt == 0 { try? await Task.sleep(nanoseconds: 400_000_000) }
+        }
+        guard let data = loaded else { return nil }
         let img = await Task.detached(priority: .userInitiated) { decode(data, maxPixel: maxPixel) }.value
         guard let img else { return nil }
         try? data.write(to: file(url), options: .atomic)
