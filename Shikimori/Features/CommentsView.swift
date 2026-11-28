@@ -29,6 +29,11 @@ final class CommentsModel: ObservableObject {
             canLoadMore = items.count > pageSize
             page = 2
         } catch is CancellationError {
+        } catch ShikiError.http(404, _) {
+            // у профиля без комментариев сайт отвечает «не найдено»: это просто пустой список
+            comments = []
+            blocks = [:]
+            canLoadMore = false
         } catch {
             self.error = comments.isEmpty ? error.localizedDescription : offlineMessage
         }
@@ -48,6 +53,8 @@ final class CommentsModel: ObservableObject {
             canLoadMore = items.count > pageSize
             page += 1
         } catch is CancellationError {
+        } catch ShikiError.http(404, _) {
+            canLoadMore = false
         } catch {
             self.error = error.localizedDescription
         }

@@ -10,7 +10,7 @@ enum CRun {
 enum CBlockKind {
     case text([CRun])
     case quote(author: String?, blocks: [CBlock])
-    case image(URL)
+    case image(URL, original: URL?)
     case spoiler(title: String, blocks: [CBlock])
     case video(thumb: URL?, link: URL, player: URL?, hosting: String)
 }
@@ -268,9 +268,11 @@ struct CommentRenderer {
                 return
             }
             if src.contains("/system/users/") { return }
-            if let url = absolute(imageHref ?? n.attrs["data-src"] ?? src) {
+            // На экране показываем лёгкую картинку (src), оригинал по ссылке открывается на весь экран
+            let original = imageHref.flatMap { absolute($0) }
+            if let url = absolute(n.attrs["data-src"] ?? (src.isEmpty ? nil : src)) ?? original {
                 flush()
-                blocks.append(CBlock(kind: .image(url)))
+                blocks.append(CBlock(kind: .image(url, original: original == url ? nil : original)))
             }
         case "b", "strong":
             var s = st; s.bold = true
@@ -417,8 +419,8 @@ struct CommentBlocksView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .background(Color(UIColor.tertiarySystemFill), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
                     )
-                case .image(let url):
-                    CommentImage(url: url)
+                case .image(let url, let original):
+                    CommentImage(url: url, original: original)
                 case .video(let thumb, let link, let player, let hosting):
                     CommentVideo(thumb: thumb, link: link, player: player, hosting: hosting)
                 case .spoiler(let title, let inner):
@@ -431,6 +433,7 @@ struct CommentBlocksView: View {
 
 struct CommentImage: View {
     let url: URL
+    var original: URL? = nil
     @State private var open = false
     @State private var image: UIImage?
     @State private var failed = false
@@ -444,27 +447,34 @@ struct CommentImage: View {
                     .frame(maxWidth: .infinity, maxHeight: 420, alignment: .leading)
                     .onTapGesture { open = true }
             } else if failed {
-                Button { failed = false; attempt += 1 } label: {
-                    Label("Не загрузилось. Нажмите, чтобы повторить", systemImage: "arrow.clockwise")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .padding(12)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(Color.secondary.opacity(0.12))
+                VStack(alignment: .leading, spacing: 8) {
+                    Button { failed = false; attempt += 1 } label: {
+                        Label("Не загрузилось. Нажмите, чтобы повторить", systemImage: "arrow.clockwise")
+                            .font(.caption.weight(.semibold))
+                    }
+                    .buttonStyle(.plain)
+                    Link(destination: original ?? url) {
+                        Label("Открыть в браузере (\((original ?? url).host ?? "сайт"))", systemImage: "safari")
+                            .font(.caption)
+                    }
                 }
-                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .padding(12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.secondary.opacity(0.12))
             } else {
                 ProgressView().frame(maxWidth: .infinity, minHeight: 90)
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        // Кэш на диске, уменьшенная копия, повтор при сбое: картинка не качается заново при каждом открытии
+        // Кэш на диске, уменьшенная копия, повтор при сбое; если лёгкая картинка не открылась, пробуем оригинал
         .task(id: "\(url.absoluteString)#\(attempt)") {
             if image == nil { image = await ImageCache.fetch(url, maxPixel: 1400) }
-            failed = image == nil
+            if image == nil, let original { image = await ImageCache.fetch(original, maxPixel: 1400) }
+            failed = image == nil && !Task.isCancelled
         }
         .fullScreenCover(isPresented: $open) {
-            ImageViewer(images: [[url]], index: 0)
+            ImageViewer(images: [[original, url].compactMap { $0 }], index: 0)
         }
     }
 }

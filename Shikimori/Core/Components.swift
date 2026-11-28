@@ -66,15 +66,22 @@ enum ImageCache {
             c.scheme = "https"
             if let u = c.url { url = u }
         }
-        var req = URLRequest(url: url, timeoutInterval: 20)
-        req.setValue(ShikiConfig.userAgent, forHTTPHeaderField: "User-Agent")
         var loaded: Data?
         for attempt in 0..<2 {
+            var req = URLRequest(url: url, timeoutInterval: 25)
+            if attempt == 0 {
+                req.setValue(ShikiConfig.userAgent, forHTTPHeaderField: "User-Agent")
+            } else {
+                // Некоторые хосты картинок не отдают файл «чужому» клиенту: пробуем как обычный браузер
+                req.setValue("Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1", forHTTPHeaderField: "User-Agent")
+                req.setValue(ShikiConfig.host + "/", forHTTPHeaderField: "Referer")
+            }
             if let (data, resp) = try? await URLSession.shared.data(for: req) {
                 let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
                 if code == 200 { loaded = data; break }
-                if code == 404 || code == 403 { break }
+                if code == 404 { break }
             }
+            if Task.isCancelled { return nil }
             if attempt == 0 { try? await Task.sleep(nanoseconds: 400_000_000) }
         }
         guard let data = loaded else { return nil }

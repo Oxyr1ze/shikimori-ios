@@ -244,12 +244,37 @@ struct HistEntry: Identifiable {
     }
 }
 
+/// Настоящие постеры тайтлов из истории (GraphQL): у новых тайтлов обычные адреса из истории дают заглушку.
+@MainActor
+final class HistoryPosters: ObservableObject {
+    static let shared = HistoryPosters()
+    @Published private(set) var urls: [String: [URL]] = [:]
+
+    static func key(_ t: HistoryTarget) -> String { "\(t.kind.rawValue)-\(t.id)" }
+
+    func load(_ targets: [HistoryTarget]) async {
+        for kind in MediaKind.allCases {
+            let ids = Array(Set(targets.filter { $0.kind == kind }.map(\.id))).filter { urls["\(kind.rawValue)-\($0)"] == nil }
+            guard !ids.isEmpty else { continue }
+            let found = await AuthManager.shared.fetchPosters(ids: ids, kind: kind)
+            var add: [String: [URL]] = [:]
+            for (id, p) in found {
+                let list = [p.main, p.original, p.preview].compactMap { $0 }
+                    .compactMap { URL(string: $0.hasPrefix("http") ? $0 : ShikiConfig.host + $0) }
+                if !list.isEmpty { add["\(kind.rawValue)-\(id)"] = list }
+            }
+            urls.merge(add) { _, new in new }
+        }
+    }
+}
+
 private struct HistoryRow: View {
     let item: HistEntry
+    @ObservedObject private var book = HistoryPosters.shared
 
     var body: some View {
         let kind = item.target?.kind ?? .anime
-        let posters = item.target?.posterURLs ?? []
+        let posters = item.target.map { (book.urls[HistoryPosters.key($0)] ?? []) + $0.posterURLs } ?? []
         let content = HStack(alignment: .top, spacing: 12) {
             Color(UIColor.tertiarySystemFill)
                 .frame(width: 48, height: 70)
@@ -294,6 +319,7 @@ struct ActivitySection: View {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Недавняя активность").font(.title3.weight(.bold))
                 ForEach(Array(items)) { HistoryRow(item: $0) }
+                    .task { await HistoryPosters.shared.load(items.compactMap(\.target)) }
                 NavigationLink { HistoryScreen(userID: userID, nickname: nickname) } label: {
                     HStack {
                         Label("История", systemImage: "clock.arrow.circlepath").font(.body.weight(.semibold))
@@ -387,6 +413,7 @@ private final class HistoryModel: ObservableObject {
             groups = HistoryModel.group(entries)
             finished = result.count < limit
             page += 1
+            await HistoryPosters.shared.load(result.compactMap(\.target))
         } catch is CancellationError {
         } catch {
             if gen == generation { self.error = error.localizedDescription }

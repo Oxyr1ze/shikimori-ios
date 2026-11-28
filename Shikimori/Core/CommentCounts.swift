@@ -19,7 +19,15 @@ final class CommentCounts {
     func text(userID: Int) async -> String? {
         if let c = users[userID] { return c }
         let limit = 50
-        guard let list = try? await AuthManager.shared.comments(topicID: userID, type: "User", page: 1, limit: limit) else { return nil }
+        let list: [Comment]
+        do {
+            list = try await AuthManager.shared.comments(topicID: userID, type: "User", page: 1, limit: limit)
+        } catch ShikiError.http(404, _) {
+            users[userID] = "0"
+            return "0"
+        } catch {
+            return nil
+        }
         let text = list.count > limit ? "\(limit)+" : String(list.count)
         users[userID] = text
         return text
