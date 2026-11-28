@@ -38,14 +38,15 @@ struct ForumRef: Codable, Hashable {
     var name: String?
 }
 
-/// Тайтл, к которому привязана тема (если есть): его постер показывается в ленте. Разбор терпимый: любые поля могут отсутствовать.
-struct TopicLinked: Codable, Hashable {
+/// Тайтл рецензии (поле target у привязанной рецензии).
+struct TopicTarget: Codable, Hashable {
     var id: Int?
     var name: String?
     var russian: String?
     var image: ImageSet?
+    var url: String?
 
-    enum CodingKeys: String, CodingKey { case id, name, russian, image }
+    enum CodingKeys: String, CodingKey { case id, name, russian, image, url }
 
     init(from decoder: Decoder) {
         guard let c = try? decoder.container(keyedBy: CodingKeys.self) else { return }
@@ -53,6 +54,63 @@ struct TopicLinked: Codable, Hashable {
         name = try? c.decodeIfPresent(String.self, forKey: .name)
         russian = try? c.decodeIfPresent(String.self, forKey: .russian)
         image = try? c.decodeIfPresent(ImageSet.self, forKey: .image)
+        url = try? c.decodeIfPresent(String.self, forKey: .url)
+    }
+
+    /// Аниме, манга или ранобэ: определяется по адресу страницы.
+    var kind: MediaKind? {
+        guard let url else { return nil }
+        if url.contains("/animes/") { return .anime }
+        if url.contains("/ranobe/") { return .ranobe }
+        if url.contains("/mangas/") { return .manga }
+        return nil
+    }
+    var title: String { (russian?.isEmpty == false ? russian : nil) ?? name ?? "" }
+    var subtitle: String? {
+        guard let name, !name.isEmpty, name != title else { return nil }
+        return name
+    }
+    var imageURLs: [URL] { CastPerson(id: id ?? 0, name: name, russian: russian, image: image).imageURLs }
+}
+
+/// Объект, к которому привязана тема (тайтл, рецензия…). Разбор терпимый: любые поля могут отсутствовать.
+struct TopicLinked: Codable, Hashable {
+    var id: Int?
+    var name: String?
+    var russian: String?
+    var image: ImageSet?
+    // Рецензия
+    var target: TopicTarget?
+    var overall: Int?
+    var storyline: Int?
+    var music: Int?
+    var characters: Int?
+    var animation: Int?
+    var votesFor: Int?
+    var votesCount: Int?
+    var htmlBody: String?
+    var body: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, russian, image, target, overall, storyline, music, characters, animation, votesFor, votesCount, htmlBody, body
+    }
+
+    init(from decoder: Decoder) {
+        guard let c = try? decoder.container(keyedBy: CodingKeys.self) else { return }
+        id = try? c.decodeIfPresent(Int.self, forKey: .id)
+        name = try? c.decodeIfPresent(String.self, forKey: .name)
+        russian = try? c.decodeIfPresent(String.self, forKey: .russian)
+        image = try? c.decodeIfPresent(ImageSet.self, forKey: .image)
+        target = try? c.decodeIfPresent(TopicTarget.self, forKey: .target)
+        overall = try? c.decodeIfPresent(Int.self, forKey: .overall)
+        storyline = try? c.decodeIfPresent(Int.self, forKey: .storyline)
+        music = try? c.decodeIfPresent(Int.self, forKey: .music)
+        characters = try? c.decodeIfPresent(Int.self, forKey: .characters)
+        animation = try? c.decodeIfPresent(Int.self, forKey: .animation)
+        votesFor = try? c.decodeIfPresent(Int.self, forKey: .votesFor)
+        votesCount = try? c.decodeIfPresent(Int.self, forKey: .votesCount)
+        htmlBody = try? c.decodeIfPresent(String.self, forKey: .htmlBody)
+        body = try? c.decodeIfPresent(String.self, forKey: .body)
     }
 
     var imageURLs: [URL] { CastPerson(id: id ?? 0, name: name, russian: russian, image: image).imageURLs }
@@ -81,7 +139,19 @@ struct Topic: Codable, Identifiable, Hashable {
     var siteURL: URL? { URL(string: "https://shikimori.io/topics/\(id)") }
 
     /// Ссылка на постер из привязанного тайтла.
-    var posterURLs: [URL] { linked?.imageURLs ?? [] }
+    var posterURLs: [URL] {
+        if let t = linked?.target { return t.imageURLs }
+        return linked?.imageURLs ?? []
+    }
+
+    var isCritique: Bool { linkedType == "Critique" }
+    var isCollection: Bool { linkedType == "Collection" || CollectionParser.looksLikeCollection(htmlBody) }
+
+    /// Текст рецензии: берётся из привязанной рецензии (в html_body темы перед ним лежат звёзды).
+    func critiqueBlocks() -> [CBlock] {
+        if let h = linked?.htmlBody, !h.isEmpty { return CommentRenderer.render(html: h) }
+        return Comment(id: id, body: linked?.body ?? body, htmlBody: nil, createdAt: createdAt, isOfftopic: nil, user: user).makeBlocks()
+    }
 
     /// Тема как «комментарий»: так её разбирает общий разборщик разметки.
     func makeBlocks() -> [CBlock] {
@@ -95,8 +165,9 @@ struct Topic: Codable, Identifiable, Hashable {
     var chips: [String] {
         var list: [String] = []
         let kinds = ["Anime": "Аниме", "Manga": "Манга", "Ranobe": "Ранобэ", "Character": "Персонаж",
-                     "Person": "Человек", "Club": "Клуб", "Critique": "Рецензия"]
+                     "Person": "Человек", "Club": "Клуб", "Critique": "Рецензия", "Collection": "Коллекция"]
         if let t = linkedType, let k = kinds[t] { list.append(k) }
+        if isCritique, let o = linked?.overall, o > 0 { list.append("★ \(o)") }
         let events = ["anons": "Анонс", "ongoing": "Онгоинг", "released": "Релиз", "episode": "Эпизод"]
         if let e = event, let name = events[e] {
             list.append(e == "episode" && (episode ?? 0) > 0 ? "Эпизод \(episode ?? 0)" : name)
@@ -301,6 +372,7 @@ struct TopicView: View {
     let topic: Topic
     @State private var full: Topic?
     @State private var blocks: [CBlock] = []
+    @State private var collection: ParsedCollection?
     @State private var error: String?
 
     @ViewBuilder
@@ -353,9 +425,24 @@ struct TopicView: View {
                     }
                 }
 
-                CommentBlocksView(blocks: blocks)
-                    .environment(\.commentFont, .body)
-                    .environment(\.commentLineSpacing, 5)
+                if t.isCritique { CritiqueHeader(topic: t) }
+
+                if !blocks.isEmpty {
+                    CommentBlocksView(blocks: blocks)
+                        .environment(\.commentFont, .body)
+                        .environment(\.commentLineSpacing, 5)
+                }
+
+                if let collection {
+                    if collection.total > 0 {
+                        Text("В коллекции: \(collection.total)")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                    }
+                    CollectionGroupsView(collection: collection)
+                } else if t.isCollection && error == nil {
+                    ProgressView().frame(maxWidth: .infinity).padding(.vertical, 30)
+                }
 
                 NavigationLink {
                     CommentsView(topicID: t.id, title: t.title)
@@ -386,12 +473,25 @@ struct TopicView: View {
             }
         }
         .task {
-            blocks = topic.makeBlocks()
+            if topic.isCritique {
+                blocks = topic.critiqueBlocks()
+            } else if !topic.isCollection {
+                blocks = topic.makeBlocks()
+            }
             do {
                 let f = try await AuthManager.shared.topic(id: topic.id)
                 full = f
-                let b = f.makeBlocks()
-                if !b.isEmpty { blocks = b }
+                if f.isCollection {
+                    let parsed = CollectionParser.parse(f.htmlBody ?? "")
+                    collection = parsed
+                    blocks = parsed.descriptionHTML.isEmpty ? [] : CommentRenderer.render(html: parsed.descriptionHTML)
+                } else if f.isCritique {
+                    let b = f.critiqueBlocks()
+                    if !b.isEmpty { blocks = b }
+                } else {
+                    let b = f.makeBlocks()
+                    if !b.isEmpty { blocks = b }
+                }
             } catch is CancellationError {
             } catch {
                 if blocks.isEmpty { self.error = error.localizedDescription }
