@@ -471,12 +471,16 @@ struct CalendarItem: Codable, Identifiable, Hashable {
     var anime: Media
     var id: String { "\(anime.id)-\(nextEpisode ?? 0)" }
 
-    var date: Date? {
-        guard let s = nextEpisodeAt else { return nil }
+    private static let isoFrac: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let g = ISO8601DateFormatter()
-        return f.date(from: s) ?? g.date(from: s)
+        return f
+    }()
+    private static let iso = ISO8601DateFormatter()
+
+    var date: Date? {
+        guard let s = nextEpisodeAt else { return nil }
+        return Self.isoFrac.date(from: s) ?? Self.iso.date(from: s)
     }
 }
 
